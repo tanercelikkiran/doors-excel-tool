@@ -1,1 +1,1 @@
-"""doors_excel — IBM DOORS - Excel bidirectional synchronisation tool."""
+"""doors_excel -- IBM DOORS to Excel bidirectional synchronisation tool."""
