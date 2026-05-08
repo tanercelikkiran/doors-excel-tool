@@ -121,3 +121,7 @@ class TestStubCommands:
     def test_rollback_exits_one(self) -> None:
         result = runner.invoke(app, ["rollback"])
         assert result.exit_code == 1
+
+    def test_gui_command_exists(self) -> None:
+        result = runner.invoke(app, ["gui", "--help"])
+        assert result.exit_code == 0

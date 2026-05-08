@@ -153,3 +153,19 @@ def rollback(
     """Generate a rollback Excel from a session snapshot. [Not yet implemented]"""
     print_error("rollback command is not yet implemented.")
     raise typer.Exit(1)
+
+
+# ---------------------------------------------------------------------------
+# gui
+# ---------------------------------------------------------------------------
+
+@app.command()
+def gui() -> None:
+    """Launch the PySide6 graphical user interface."""
+    try:
+        from doors_excel.gui.main import run_gui
+
+        run_gui()
+    except ImportError as exc:
+        print_error(f"PySide6 is not installed: {exc}")
+        raise typer.Exit(1) from exc
