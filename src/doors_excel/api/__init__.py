@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from doors_excel.api.diff import run_diff
+from doors_excel.api.rollback import generate_rollback_excel
 from doors_excel.api.sessions import (
     SessionInfo,
     SessionManager,
@@ -21,4 +22,6 @@ __all__ = [
     "validate_excel",
     # diff
     "run_diff",
+    # rollback
+    "generate_rollback_excel",
 ]
