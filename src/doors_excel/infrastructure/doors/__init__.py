@@ -8,6 +8,7 @@ from doors_excel.infrastructure.doors.chunker import (
     chunk_dxl,
 )
 from doors_excel.infrastructure.doors.connection import DoorsConnection
+from doors_excel.infrastructure.doors.exporter import DoorsExporter
 from doors_excel.infrastructure.doors.keepalive import (
     DEFAULT_INTERVAL_SECONDS,
     KeepAliveWatchdog,
@@ -30,6 +31,8 @@ __all__ = [
     "get_jinja_env",
     # connection
     "DoorsConnection",
+    # exporter
+    "DoorsExporter",
     # keepalive
     "KeepAliveWatchdog",
     "DEFAULT_INTERVAL_SECONDS",
