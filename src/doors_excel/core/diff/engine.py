@@ -220,6 +220,10 @@ def _insert_moved_objects(
 
     Hierarchy is stored in staging_baseline.parent_id (a column).
     In staging_excel it appears as an attribute row named *parent_id_attr*.
+
+    # TODO: MOVED objects also produce an UPDATED row for parent_id_attr via
+    # _insert_attribute_changes (excel changed, doors did not → UPDATED).
+    # The apply layer must deduplicate to avoid double-applying parent moves.
     """
     conn.execute(
         """
