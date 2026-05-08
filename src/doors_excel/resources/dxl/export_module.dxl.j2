@@ -1,0 +1,49 @@
+// export_module.dxl.j2 — rendered by Jinja2; do not edit manually.
+// Exports all objects from module {{ module_path | dxl_value }}.
+//
+// Output format per object:
+//   abs_no FS level FS parent_abs_no FS has_ole FS [plain FS rtf FS]... RS \n
+// where FS = \x1f (ASCII 31) and RS = \x1e (ASCII 30).
+
+string FS = "\x1f"
+string RS  = "\x1e"
+
+Module m = read("{{ module_path | dxl_value }}", false)
+if null m then {
+    print "DOORS_EXPORT_ERROR: Cannot open module {{ module_path | dxl_value }}\n"
+    halt
+}
+
+Object o
+for o in entire m do {
+    int an = absNo(o)
+    if an == 0 then continue
+
+    string sParent = ""
+    Object par = parent(o)
+    if !null par then { sParent = absNo(par) "" }
+
+    // OLE detection
+    int hasOleFlag = 0
+    {
+        OleItem item
+        for item in o do { hasOleFlag = 1 \n break }
+    }
+
+    print an "" FS
+    print level(o) "" FS
+    print sParent FS
+    print hasOleFlag "" FS
+
+{% for attr in attributes %}
+    {
+        string p{{ loop.index }} = o."{{ attr | dxl_value }}"
+        if undefined p{{ loop.index }} then { p{{ loop.index }} = "" }
+        string r{{ loop.index }} = richText(o, "{{ attr | dxl_value }}")
+        if undefined r{{ loop.index }} then { r{{ loop.index }} = "" }
+        print p{{ loop.index }} FS r{{ loop.index }} FS
+    }
+{% endfor %}
+    print RS "\n"
+}
+close(m)

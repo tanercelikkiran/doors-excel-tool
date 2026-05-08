@@ -76,3 +76,57 @@ class TestRenderTemplate:
         from jinja2 import TemplateNotFound
         with pytest.raises(TemplateNotFound):
             render_template("nonexistent_template.dxl.j2")
+
+
+class TestExportModuleTemplate:
+    def test_renders_without_error(self) -> None:
+        rendered = render_template(
+            "export_module.dxl.j2",
+            module_path="/proj/mod",
+            attributes=["Object Text", "Short Name"],
+        )
+        assert isinstance(rendered, str)
+        assert len(rendered) > 0
+
+    def test_module_path_is_escaped(self) -> None:
+        rendered = render_template(
+            "export_module.dxl.j2",
+            module_path='/proj/"evil"\\mod',
+            attributes=["Object Text"],
+        )
+        assert '\\"evil\\"' in rendered
+        assert "\\\\mod" in rendered
+
+    def test_attribute_names_appear_in_output(self) -> None:
+        rendered = render_template(
+            "export_module.dxl.j2",
+            module_path="/proj/mod",
+            attributes=["Object Text", "Short Name"],
+        )
+        assert "Object Text" in rendered
+        assert "Short Name" in rendered
+
+    def test_two_attributes_each_have_richtext_block(self) -> None:
+        rendered = render_template(
+            "export_module.dxl.j2",
+            module_path="/proj/mod",
+            attributes=["Object Text", "Short Name"],
+        )
+        assert rendered.count("richText") == 2
+
+    def test_field_and_record_sep_constants_present(self) -> None:
+        rendered = render_template(
+            "export_module.dxl.j2",
+            module_path="/proj/mod",
+            attributes=["Object Text"],
+        )
+        assert "\\x1f" in rendered or "\x1f" in rendered
+        assert "\\x1e" in rendered or "\x1e" in rendered
+
+    def test_empty_attribute_list_still_renders(self) -> None:
+        rendered = render_template(
+            "export_module.dxl.j2",
+            module_path="/proj/mod",
+            attributes=[],
+        )
+        assert "Module m" in rendered
