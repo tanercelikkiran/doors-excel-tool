@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import openpyxl
 import pytest
@@ -104,24 +105,85 @@ class TestValidateWithFile:
 
 
 # ---------------------------------------------------------------------------
-# Stub commands
+# Stub commands (import is still a stub; export + rollback are real)
 # ---------------------------------------------------------------------------
 
 class TestStubCommands:
-    def test_export_exits_one(self, tmp_path: Path) -> None:
-        cfg = _write_valid_config(tmp_path)
-        result = runner.invoke(app, ["export", "--config", str(cfg)])
-        assert result.exit_code == 1
-
     def test_import_exits_one(self, tmp_path: Path) -> None:
         xlsx = _write_valid_xlsx(tmp_path)
         result = runner.invoke(app, ["import", "--file", str(xlsx)])
         assert result.exit_code == 1
 
-    def test_rollback_exits_one(self) -> None:
-        result = runner.invoke(app, ["rollback"])
-        assert result.exit_code == 1
-
     def test_gui_command_exists(self) -> None:
         result = runner.invoke(app, ["gui", "--help"])
         assert result.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# export (real implementation)
+# ---------------------------------------------------------------------------
+
+class TestExportCommand:
+    def test_export_succeeds_with_mocked_api(self, tmp_path: Path) -> None:
+        cfg = _write_valid_config(tmp_path)
+        out = tmp_path / "out.xlsx"
+        with patch("doors_excel.cli.app.DoorsConnection") as MockConn, \
+             patch("doors_excel.cli.app.export_module_api", return_value=out):
+            MockConn.open.return_value = MagicMock()
+            result = runner.invoke(app, ["export", "--config", str(cfg), "--output", str(out)])
+        assert result.exit_code == 0
+
+    def test_export_missing_config_exits_one(self, tmp_path: Path) -> None:
+        result = runner.invoke(
+            app,
+            ["export", "--config", str(tmp_path / "missing.json"), "--output", str(tmp_path / "out.xlsx")],
+        )
+        assert result.exit_code == 1
+
+    def test_export_doors_unavailable_exits_one(self, tmp_path: Path) -> None:
+        cfg = _write_valid_config(tmp_path)
+        out = tmp_path / "out.xlsx"
+        with patch("doors_excel.cli.app.DoorsConnection") as MockConn:
+            MockConn.open.side_effect = Exception("COM unavailable")
+            result = runner.invoke(app, ["export", "--config", str(cfg), "--output", str(out)])
+        assert result.exit_code == 1
+
+    def test_export_quiet_suppresses_success_message(self, tmp_path: Path) -> None:
+        cfg = _write_valid_config(tmp_path)
+        out = tmp_path / "out.xlsx"
+        with patch("doors_excel.cli.app.DoorsConnection") as MockConn, \
+             patch("doors_excel.cli.app.export_module_api", return_value=out):
+            MockConn.open.return_value = MagicMock()
+            result = runner.invoke(
+                app,
+                ["export", "--config", str(cfg), "--output", str(out), "--quiet"],
+            )
+        assert result.exit_code == 0
+        assert "Exported" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# rollback (real implementation)
+# ---------------------------------------------------------------------------
+
+class TestRollbackCommand:
+    def test_rollback_succeeds_with_mocked_api(self, tmp_path: Path) -> None:
+        db_path = str(tmp_path / "test.db")
+        session_file = tmp_path / ".doors_session.json"
+        session_file.write_text(
+            json.dumps({"session_id": "s1", "db_path": db_path}), encoding="utf-8"
+        )
+        out = tmp_path / "rollback.xlsx"
+        with patch("doors_excel.cli.app.generate_rollback_excel_api", return_value=out):
+            result = runner.invoke(
+                app,
+                ["rollback", "--session", str(session_file), "--output", str(out)],
+            )
+        assert result.exit_code == 0
+
+    def test_rollback_missing_session_file_exits_one(self, tmp_path: Path) -> None:
+        result = runner.invoke(
+            app,
+            ["rollback", "--session", str(tmp_path / "no.json")],
+        )
+        assert result.exit_code == 1

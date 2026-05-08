@@ -3,9 +3,9 @@
 Commands
 --------
 validate    Validate a config file and/or an Excel file (fully implemented).
-export      Export a DOORS module to Excel (stub — not yet implemented).
+export      Export a DOORS module to Excel (fully implemented).
 import-mod  Import an Excel file into DOORS (stub — not yet implemented).
-rollback    Generate a rollback Excel from a session snapshot (stub).
+rollback    Generate a rollback Excel from a session snapshot (fully implemented).
 """
 from __future__ import annotations
 
@@ -14,8 +14,11 @@ from typing import Annotated, Optional
 
 import typer
 
-from doors_excel.cli.output import print_error, print_validation_result
+from doors_excel.api.export import export_module as export_module_api
+from doors_excel.api.rollback import generate_rollback_excel as generate_rollback_excel_api
+from doors_excel.cli.output import console, print_error, print_validation_result
 from doors_excel.common.exceptions import ConfigurationError, DoorsExcelError
+from doors_excel.infrastructure.doors.connection import DoorsConnection
 
 app = typer.Typer(
     name="doors-excel",
@@ -94,7 +97,7 @@ def validate(
 
 
 # ---------------------------------------------------------------------------
-# export (stub)
+# export
 # ---------------------------------------------------------------------------
 
 @app.command()
@@ -104,10 +107,60 @@ def export(
         Optional[Path],
         typer.Option("--output", "-o", help="Output Excel path."),
     ] = None,
+    module: Annotated[
+        Optional[str],
+        typer.Option("--module", "-m", help="DOORS module path (overrides config)."),
+    ] = None,
+    baseline: Annotated[
+        str,
+        typer.Option("--baseline", help="DOORS baseline to export (default: current)."),
+    ] = "current",
+    quiet: Annotated[
+        bool,
+        typer.Option("--quiet", "-q", help="Suppress non-error output."),
+    ] = False,
 ) -> None:
-    """Export a DOORS module to Excel. [Not yet implemented]"""
-    print_error("export command is not yet implemented.")
-    raise typer.Exit(1)
+    """Export a DOORS module to Excel."""
+    from doors_excel.api.validate import validate_config
+
+    try:
+        project_cfg = validate_config(config)
+    except ConfigurationError as exc:
+        print_error(str(exc))
+        raise typer.Exit(1) from exc
+
+    mod_cfg = next(
+        (m for m in project_cfg.modules if module is None or m.module_path == module),
+        project_cfg.modules[0] if project_cfg.modules else None,
+    )
+    if mod_cfg is None:
+        print_error("No module configuration found.")
+        raise typer.Exit(1)
+
+    out_path = output or Path(mod_cfg.module_path.rstrip("/").rsplit("/", 1)[-1] + ".xlsx")
+
+    try:
+        conn = DoorsConnection.open()
+    except Exception as exc:
+        print_error(f"Cannot connect to DOORS: {exc}")
+        raise typer.Exit(1) from exc
+
+    try:
+        result_path = export_module_api(
+            mod_cfg.module_path,
+            mod_cfg,
+            out_path,
+            doors_conn=conn,
+            baseline=baseline,
+        )
+    except DoorsExcelError as exc:
+        print_error(str(exc))
+        raise typer.Exit(1) from exc
+    finally:
+        conn.close()
+
+    if not quiet:
+        console.print(f"[bold green]Exported[/] → {result_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -136,7 +189,7 @@ def import_mod(
 
 
 # ---------------------------------------------------------------------------
-# rollback (stub)
+# rollback
 # ---------------------------------------------------------------------------
 
 @app.command()
@@ -149,10 +202,53 @@ def rollback(
         Optional[Path],
         typer.Option("--output", "-o", help="Output recovery Excel path."),
     ] = None,
+    quiet: Annotated[
+        bool,
+        typer.Option("--quiet", "-q", help="Suppress non-error output."),
+    ] = False,
 ) -> None:
-    """Generate a rollback Excel from a session snapshot. [Not yet implemented]"""
-    print_error("rollback command is not yet implemented.")
-    raise typer.Exit(1)
+    """Generate a rollback Excel from a session snapshot."""
+    if session is None or not session.exists():
+        print_error(
+            "Provide --session pointing to a valid .session.json file."
+            if session is None
+            else f"Session file not found: {session}"
+        )
+        raise typer.Exit(1)
+
+    import json
+    import sqlite3
+
+    try:
+        data = json.loads(session.read_text(encoding="utf-8"))
+        session_id = data["session_id"]
+    except (OSError, json.JSONDecodeError, KeyError) as exc:
+        print_error(f"Cannot read session file: {exc}")
+        raise typer.Exit(1) from exc
+
+    db_path_str = data.get("db_path")
+    if db_path_str is None:
+        print_error("Session file does not contain a db_path field.")
+        raise typer.Exit(1)
+
+    out_path = output or (session.parent / "rollback.xlsx")
+
+    from doors_excel.infrastructure.database.schema import apply_schema
+
+    conn = sqlite3.connect(db_path_str)
+    conn.row_factory = sqlite3.Row
+    apply_schema(conn)
+
+    try:
+        result_path = generate_rollback_excel_api(session_id, conn, out_path)
+    except DoorsExcelError as exc:
+        print_error(str(exc))
+        raise typer.Exit(1) from exc
+    finally:
+        conn.close()
+
+    if not quiet:
+        console.print(f"[bold green]Rollback Excel[/] → {result_path}")
 
 
 # ---------------------------------------------------------------------------
