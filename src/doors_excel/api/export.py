@@ -2,12 +2,16 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from doors_excel.core.transformation.hashing import hash_markdown
 from doors_excel.core.transformation.rtf_to_markdown import rtf_to_markdown
 from doors_excel.core.validation.models import ModuleConfig
 from doors_excel.infrastructure.doors.exporter import DoorsExporter
 from doors_excel.infrastructure.excel.writer import add_module_sheet, create_workbook, save_workbook
+
+if TYPE_CHECKING:
+    from doors_excel.api.sessions import SessionManager
 
 
 def export_module(
@@ -17,15 +21,13 @@ def export_module(
     *,
     doors_conn: object,
     baseline: str = "current",
+    session_manager: "SessionManager | None" = None,
 ) -> Path:
     """Export *module_path* from DOORS to an Excel file at *output_path*.
 
-    1. Fetches module objects from DOORS via DoorsExporter.
-    2. Converts RTF → GFM Markdown for Text-type attributes.
-    3. Pivots flat (object_id, attribute, value) rows into one row per object.
-    4. Writes headers + data rows; embeds the module path as workbook metadata.
-
-    Returns the resolved path to the saved file.
+    When *session_manager* is provided a session is created after saving the
+    workbook and all three staging tables are populated so the 3-way diff
+    engine can run later during import.
     """
     output = Path(output_path)
     attributes = [m.attribute for m in module_config.column_mappings]
@@ -64,8 +66,60 @@ def export_module(
         + [m.column for m in module_config.column_mappings]
     )
     ws.append(headers)
-
     for oid in sorted(objects):
         ws.append([objects[oid].get(h) for h in headers])
 
-    return save_workbook(wb, output)
+    saved_path = save_workbook(wb, output)
+
+    if session_manager is not None:
+        _populate_session(session_manager, saved_path, module_path, raw_rows)
+
+    return saved_path
+
+
+def _populate_session(
+    mgr: "SessionManager",
+    excel_path: Path,
+    module_path: str,
+    raw_rows: list[dict],
+) -> None:
+    """Create a session and populate staging_doors, staging_baseline, rollback_snapshots."""
+    from doors_excel.infrastructure.database.repositories import (
+        RollbackSnapshotRepository,
+        StagingBaselineRepository,
+        StagingDoorsRepository,
+    )
+
+    info = mgr.create(excel_path, module_path)
+    sid = info.session_id
+    conn = mgr.conn
+
+    StagingDoorsRepository(conn).insert_many(
+        [{**row, "session_id": sid} for row in raw_rows]
+    )
+    StagingBaselineRepository(conn).insert_many(
+        [
+            {
+                "session_id": sid,
+                "object_id": row["object_id"],
+                "attribute": row["attribute"],
+                "value": row["value"],
+                "object_type": row["object_type"],
+                "level": row["level"],
+                "parent_id": row["parent_id"],
+            }
+            for row in raw_rows
+        ]
+    )
+    RollbackSnapshotRepository(conn).insert_many(
+        [
+            {
+                "session_id": sid,
+                "object_id": row["object_id"],
+                "attribute": row["attribute"],
+                "original_value": row["value"],
+                "original_rtf": row["rtf_value"],
+            }
+            for row in raw_rows
+        ]
+    )

@@ -8,6 +8,7 @@ import openpyxl
 import pytest
 
 from doors_excel.core.validation.models import ColumnMapping, ModuleConfig
+from doors_excel.api.sessions import SessionManager
 
 
 def _make_module_config(attrs: list[str] | None = None) -> ModuleConfig:
@@ -192,3 +193,82 @@ class TestExportModule:
         ws = wb.active
         module_path = get_module_path(wb, ws)
         assert module_path == "/proj/mod"
+
+
+# ---------------------------------------------------------------------------
+# Session-aware export
+# ---------------------------------------------------------------------------
+
+class TestSessionAwareExport:
+    def test_staging_doors_populated_when_session_manager_provided(self, tmp_path: Path) -> None:
+        from doors_excel.api.export import export_module
+
+        db_path = tmp_path / "test.db"
+        mock_conn = object()
+        rows = _raw_rows(object_id=7, attrs=["Object Text"])
+        with patch("doors_excel.api.export.DoorsExporter.export_module", return_value=rows):
+            mgr = SessionManager(db_path)
+            export_module(
+                "/proj/mod",
+                _make_module_config(["Object Text"]),
+                tmp_path / "out.xlsx",
+                doors_conn=mock_conn,
+                session_manager=mgr,
+            )
+            staging = mgr.conn.execute(
+                "SELECT * FROM staging_doors WHERE attribute = 'Object Text'"
+            ).fetchall()
+        assert len(staging) == 1
+        assert staging[0]["object_id"] == 7
+
+    def test_staging_baseline_populated_when_session_manager_provided(self, tmp_path: Path) -> None:
+        from doors_excel.api.export import export_module
+
+        db_path = tmp_path / "test.db"
+        mock_conn = object()
+        rows = _raw_rows(object_id=7, attrs=["Object Text"])
+        with patch("doors_excel.api.export.DoorsExporter.export_module", return_value=rows):
+            mgr = SessionManager(db_path)
+            export_module(
+                "/proj/mod",
+                _make_module_config(["Object Text"]),
+                tmp_path / "out.xlsx",
+                doors_conn=mock_conn,
+                session_manager=mgr,
+            )
+            baseline = mgr.conn.execute(
+                "SELECT * FROM staging_baseline WHERE attribute = 'Object Text'"
+            ).fetchall()
+        assert len(baseline) == 1
+
+    def test_rollback_snapshots_populated_when_session_manager_provided(self, tmp_path: Path) -> None:
+        from doors_excel.api.export import export_module
+
+        db_path = tmp_path / "test.db"
+        mock_conn = object()
+        rows = _raw_rows(object_id=7, attrs=["Object Text"])
+        with patch("doors_excel.api.export.DoorsExporter.export_module", return_value=rows):
+            mgr = SessionManager(db_path)
+            export_module(
+                "/proj/mod",
+                _make_module_config(["Object Text"]),
+                tmp_path / "out.xlsx",
+                doors_conn=mock_conn,
+                session_manager=mgr,
+            )
+            snaps = mgr.conn.execute("SELECT * FROM rollback_snapshots").fetchall()
+        assert len(snaps) == 1
+        assert snaps[0]["object_id"] == 7
+
+    def test_no_session_created_when_session_manager_not_provided(self, tmp_path: Path) -> None:
+        from doors_excel.api.export import export_module
+
+        mock_conn = object()
+        with patch("doors_excel.api.export.DoorsExporter.export_module", return_value=_raw_rows()):
+            out = export_module(
+                "/proj/mod",
+                _make_module_config(),
+                tmp_path / "out.xlsx",
+                doors_conn=mock_conn,
+            )
+        assert out.exists()  # unchanged behaviour
