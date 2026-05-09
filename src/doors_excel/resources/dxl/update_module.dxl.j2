@@ -1,0 +1,22 @@
+// update_module.dxl.j2 — rendered by Jinja2; do not edit manually.
+// Opens {{ module_path | dxl_value }} in edit mode and applies attribute updates.
+//
+// Input: updates — list of {object_id, attribute, value}
+
+Module m = edit("{{ module_path | dxl_value }}", false)
+if null m then {
+    print "DOORS_IMPORT_ERROR: Cannot open module {{ module_path | dxl_value }}\n"
+    halt
+}
+
+{% for upd in updates %}
+{
+    Object o = object({{ upd.object_id }}, m)
+    if !null o then {
+        o."{{ upd.attribute | dxl_value }}" = "{{ upd.value | dxl_value }}"
+    }
+}
+{% endfor %}
+
+save(m)
+close(m)
