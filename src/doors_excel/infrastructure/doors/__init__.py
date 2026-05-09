@@ -9,6 +9,7 @@ from doors_excel.infrastructure.doors.chunker import (
 )
 from doors_excel.infrastructure.doors.connection import DoorsConnection
 from doors_excel.infrastructure.doors.exporter import DoorsExporter
+from doors_excel.infrastructure.doors.importer import DoorsImporter
 from doors_excel.infrastructure.doors.keepalive import (
     DEFAULT_INTERVAL_SECONDS,
     KeepAliveWatchdog,
