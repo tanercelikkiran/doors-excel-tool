@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS staging_excel (
     object_id   INTEGER,
     attribute   TEXT    NOT NULL,
     value       TEXT,
+    md_hash     TEXT,
     UNIQUE(session_id, row_number, attribute)
 );
 

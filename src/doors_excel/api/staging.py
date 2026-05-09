@@ -4,6 +4,7 @@ from __future__ import annotations
 import sqlite3
 from typing import TYPE_CHECKING
 
+from doors_excel.core.transformation.hashing import hash_markdown
 from doors_excel.infrastructure.database.repositories import StagingExcelRepository
 
 if TYPE_CHECKING:
@@ -26,6 +27,12 @@ def load_excel_to_staging(
     headers = [str(cell) if cell is not None else "" for cell in rows[0]]
     oid_col = module_config.object_id_column
 
+    text_cols = {
+        m.column
+        for m in module_config.column_mappings
+        if m.attribute_type == "Text"
+    }
+
     staging: list[dict] = []
     for row_idx, row in enumerate(rows[1:], start=2):
         object_id: int | None = None
@@ -40,12 +47,15 @@ def load_excel_to_staging(
             if not header:
                 continue
             value = row[col_idx] if col_idx < len(row) else None
+            str_value = str(value) if value is not None else None
+            md_hash = hash_markdown(str_value) if header in text_cols and str_value is not None else None
             staging.append({
                 "session_id": session_id,
                 "row_number": row_idx,
                 "object_id": object_id,
                 "attribute": header,
-                "value": str(value) if value is not None else None,
+                "value": str_value,
+                "md_hash": md_hash,
             })
 
     StagingExcelRepository(conn).insert_many(staging)

@@ -131,9 +131,9 @@ class TestStagingExcelRepository:
     def _rows(self) -> list[dict[str, Any]]:
         return [
             {"session_id": SESSION_ID, "row_number": 2, "object_id": 10,
-             "attribute": "Object Text", "value": "Updated Hello"},
+             "attribute": "Object Text", "value": "Updated Hello", "md_hash": "abc123"},
             {"session_id": SESSION_ID, "row_number": 3, "object_id": None,
-             "attribute": "Object Text", "value": "Brand new"},
+             "attribute": "Object Text", "value": "Brand new", "md_hash": None},
         ]
 
     def test_insert_many_and_get_by_session(self, seeded_conn: sqlite3.Connection) -> None:

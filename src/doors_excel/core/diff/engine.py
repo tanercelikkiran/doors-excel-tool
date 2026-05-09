@@ -19,12 +19,10 @@ Change classification (attribute-level for existing objects):
     DELETED    : object-level — baseline object absent from Excel
     MOVED      : existing object whose parent changed vs baseline
 
-NOTE — REQ-FUN-105.4 (md_hash bypass): staging_excel has no md_hash column.
-A cell whose Markdown hashes to staging_doors.md_hash was not edited since
-export and MUST be UNCHANGED even if the string representation drifted during
-RTF↔MD round-trip.  This bypass requires staging_excel to carry md_hash or
-the engine to accept pre-computed hash pairs.  Currently NOT implemented.
-# TODO REQ-FUN-105.4: add md_hash to staging_excel and wire hash comparison.
+NOTE — REQ-FUN-105.4 (md_hash bypass): staging_excel carries md_hash for
+Text-type columns.  A cell whose Markdown hash matches staging_doors.md_hash
+was not edited since export and is classified UNCHANGED even if the string
+representation drifted during RTF↔MD round-trip.  Implemented.
 
 NOTE — DOORS-only additions: objects added to DOORS by another user since
 export are detected separately via baseline_mismatch_check() below; they do
@@ -149,6 +147,10 @@ def _insert_attribute_changes(conn: sqlite3.Connection, session_id: str) -> None
     """UPDATED and CONFLICT: per-attribute diffs for existing objects.
 
     'Existing' means the object_id appears in staging_baseline (not NEW).
+
+    UNCHANGED detection uses both string equality (fast path) and md_hash
+    comparison (REQ-FUN-105.4): if both sides have a matching md_hash the
+    cell content is semantically unchanged even after RTF<->MD round-trip.
     """
     conn.execute(
         """
@@ -159,7 +161,9 @@ def _insert_attribute_changes(conn: sqlite3.Connection, session_id: str) -> None
                 e.value            AS excel_value,
                 b.value            AS baseline_value,
                 d.value            AS doors_value,
-                e.row_number
+                e.row_number,
+                e.md_hash          AS excel_md_hash,
+                d.md_hash          AS doors_md_hash
             FROM staging_excel e
             LEFT JOIN staging_baseline b
                 ON  b.session_id = :sid
@@ -185,14 +189,17 @@ def _insert_attribute_changes(conn: sqlite3.Connection, session_id: str) -> None
                 doors_value,
                 row_number,
                 CASE
-                    -- Excel unchanged from baseline → UNCHANGED regardless of DOORS
-                    WHEN excel_value IS baseline_value                           THEN 'UNCHANGED'
-                    -- Excel changed, DOORS did not → safe UPDATE
+                    WHEN excel_value IS baseline_value
+                      OR (
+                          excel_md_hash IS NOT NULL
+                          AND doors_md_hash IS NOT NULL
+                          AND excel_md_hash IS doors_md_hash
+                      )
+                    THEN 'UNCHANGED'
                     WHEN (excel_value IS NOT baseline_value)
-                     AND (doors_value IS     baseline_value)                    THEN 'UPDATED'
-                    -- Both sides changed → CONFLICT
+                     AND (doors_value IS     baseline_value) THEN 'UPDATED'
                     WHEN (excel_value IS NOT baseline_value)
-                     AND (doors_value IS NOT baseline_value)                    THEN 'CONFLICT'
+                     AND (doors_value IS NOT baseline_value) THEN 'CONFLICT'
                     ELSE 'UNCHANGED'
                 END AS change_type
             FROM three_way

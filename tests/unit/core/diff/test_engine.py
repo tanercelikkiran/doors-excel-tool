@@ -264,11 +264,36 @@ class TestBaselineMismatchCheck:
 
 
 # ---------------------------------------------------------------------------
-# md_hash bypass (REQ-FUN-105.4) — not yet implemented
+# md_hash bypass (REQ-FUN-105.4)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(reason="REQ-FUN-105.4 md_hash bypass not yet implemented", strict=True)
-def test_md_hash_bypass_not_implemented(conn) -> None:
-    """staging_excel has no md_hash column yet; bypass is a TODO."""
+def test_md_hash_column_present_in_staging_excel(conn) -> None:
+    """staging_excel.md_hash column exists (REQ-FUN-105.4)."""
     cols = [row[1] for row in conn.execute("PRAGMA table_info(staging_excel)").fetchall()]
     assert "md_hash" in cols
+
+
+def test_md_hash_bypass_classifies_unchanged(conn) -> None:
+    """Objects with matching md_hash are classified UNCHANGED even if string differs (REQ-FUN-105.4)."""
+    same_hash = "abc123"
+    conn.execute(
+        "INSERT INTO staging_baseline (session_id, object_id, attribute, value)"
+        " VALUES (?, 1, 'Object Text', 'original rtf text')",
+        (SID,),
+    )
+    conn.execute(
+        "INSERT INTO staging_doors (session_id, object_id, attribute, value, md_hash, has_ole)"
+        " VALUES (?, 1, 'Object Text', 'original rtf text', ?, 0)",
+        (SID, same_hash),
+    )
+    # Excel has a slightly different string (RTF->MD round-trip drift) but same hash
+    conn.execute(
+        "INSERT INTO staging_excel (session_id, row_number, object_id, attribute, value, md_hash)"
+        " VALUES (?, 2, 1, 'Object Text', 'original rtf text (normalized)', ?)",
+        (SID, same_hash),
+    )
+    conn.commit()
+
+    stats = compute_diff(conn, SID)
+    assert stats.updated_count == 0
+    assert stats.conflict_count == 0

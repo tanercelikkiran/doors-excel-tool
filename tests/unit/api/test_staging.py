@@ -7,6 +7,7 @@ from pathlib import Path
 import openpyxl
 import pytest
 
+from doors_excel.core.transformation.hashing import hash_markdown
 from doors_excel.core.validation.models import ColumnMapping, ModuleConfig
 from doors_excel.infrastructure.database.schema import apply_schema
 
@@ -16,6 +17,17 @@ def _make_module_config() -> ModuleConfig:
         module_path="/proj/mod",
         column_mappings=[
             ColumnMapping(column="Object Text", attribute="Object Text", attribute_type="Text"),
+        ],
+    )
+
+
+def _make_module_config_mixed() -> ModuleConfig:
+    """Config with one Text column and one String column."""
+    return ModuleConfig(
+        module_path="/proj/mod",
+        column_mappings=[
+            ColumnMapping(column="Object Text", attribute="Object Text", attribute_type="Text"),
+            ColumnMapping(column="Short Name", attribute="Short Name", attribute_type="String"),
         ],
     )
 
@@ -106,3 +118,45 @@ class TestLoadExcelToStaging:
             "SELECT DISTINCT object_id FROM staging_excel WHERE session_id = 's1'"
         ).fetchall()
         assert {r["object_id"] for r in rows} == {1, 2}
+
+    def test_md_hash_computed_for_text_columns(self) -> None:
+        from doors_excel.api.staging import load_excel_to_staging
+
+        conn = _make_conn()
+        ws = _make_worksheet([
+            ["Absolute Number", "Object Text", "Short Name"],
+            [1, "**bold content**", "short"],
+        ])
+        conn.execute(
+            "INSERT INTO sessions (session_id, excel_path, doors_module, excel_sha256, module_version)"
+            " VALUES ('s1', 'f.xlsx', '/proj/mod', 'abc', 'current')"
+        )
+        conn.commit()
+        load_excel_to_staging(ws, conn, "s1", _make_module_config_mixed())
+
+        rows = conn.execute(
+            "SELECT md_hash FROM staging_excel WHERE session_id='s1' AND attribute='Object Text'"
+        ).fetchall()
+        assert len(rows) == 1
+        assert rows[0]["md_hash"] == hash_markdown("**bold content**")
+
+    def test_md_hash_null_for_non_text_columns(self) -> None:
+        from doors_excel.api.staging import load_excel_to_staging
+
+        conn = _make_conn()
+        ws = _make_worksheet([
+            ["Absolute Number", "Object Text", "Short Name"],
+            [1, "**bold content**", "short"],
+        ])
+        conn.execute(
+            "INSERT INTO sessions (session_id, excel_path, doors_module, excel_sha256, module_version)"
+            " VALUES ('s1', 'f.xlsx', '/proj/mod', 'abc', 'current')"
+        )
+        conn.commit()
+        load_excel_to_staging(ws, conn, "s1", _make_module_config_mixed())
+
+        rows = conn.execute(
+            "SELECT md_hash FROM staging_excel WHERE session_id='s1' AND attribute='Short Name'"
+        ).fetchall()
+        assert len(rows) == 1
+        assert rows[0]["md_hash"] is None

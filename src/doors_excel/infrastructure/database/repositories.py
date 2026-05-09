@@ -104,8 +104,8 @@ class StagingExcelRepository:
             return
         self.conn.executemany(
             """INSERT OR REPLACE INTO staging_excel
-               (session_id, row_number, object_id, attribute, value)
-               VALUES (:session_id, :row_number, :object_id, :attribute, :value)""",
+               (session_id, row_number, object_id, attribute, value, md_hash)
+               VALUES (:session_id, :row_number, :object_id, :attribute, :value, :md_hash)""",
             rows,
         )
         self.conn.commit()

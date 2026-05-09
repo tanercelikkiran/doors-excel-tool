@@ -51,6 +51,14 @@ def stage_import(
         exporter = DoorsExporter(doors_conn)
         raw_rows = exporter.export_module(module_config.module_path, attributes, baseline=baseline)
 
+        text_attrs = {m.attribute for m in module_config.column_mappings if m.attribute_type == "Text"}
+        from doors_excel.core.transformation.rtf_to_markdown import rtf_to_markdown
+        from doors_excel.core.transformation.hashing import hash_markdown as _hash_md
+        for row in raw_rows:
+            if row["attribute"] in text_attrs and row.get("rtf_value"):
+                result = rtf_to_markdown(row["rtf_value"])
+                row["md_hash"] = _hash_md(result.markdown)
+
         StagingDoorsRepository(conn).insert_many(
             [{**row, "session_id": sid} for row in raw_rows]
         )
