@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from doors_excel.api.diff import run_diff
 from doors_excel.api.export import export_module
+from doors_excel.api.import_ import execute_import, stage_import
 from doors_excel.api.rollback import generate_rollback_excel
 from doors_excel.api.sessions import (
     SessionInfo,
@@ -28,6 +29,9 @@ __all__ = [
     "run_diff",
     # export
     "export_module",
+    # import
+    "stage_import",
+    "execute_import",
     # rollback
     "generate_rollback_excel",
 ]
