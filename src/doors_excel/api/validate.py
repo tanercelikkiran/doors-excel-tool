@@ -18,11 +18,11 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from doors_excel.api.staging import load_excel_to_staging as _load_excel_to_staging_public
 from doors_excel.common.exceptions import ConfigurationError
 from doors_excel.core.validation.models import ModuleConfig, ProjectConfig, load_config
 from doors_excel.core.validation.validator import ValidationResult, validate_session
 from doors_excel.infrastructure.database.connection import init_database
-from doors_excel.infrastructure.database.repositories import StagingExcelRepository
 from doors_excel.infrastructure.excel.reader import FormulaPolicy, open_workbook
 
 if TYPE_CHECKING:
@@ -120,35 +120,5 @@ def _load_worksheet_to_staging(
     session_id: str,
     module_config: ModuleConfig,
 ) -> None:
-    """Read all rows from *ws* and insert into ``staging_excel``."""
-    rows = list(ws.iter_rows(values_only=True))
-    if not rows:
-        return
-
-    headers = [str(cell) if cell is not None else "" for cell in rows[0]]
-    oid_col = module_config.object_id_column
-
-    staging: list[dict] = []
-    for row_idx, row in enumerate(rows[1:], start=2):
-        # Resolve object_id from the "Absolute Number" column
-        object_id: int | None = None
-        if oid_col in headers:
-            raw_oid = row[headers.index(oid_col)] if headers.index(oid_col) < len(row) else None
-            try:
-                object_id = int(raw_oid) if raw_oid is not None and str(raw_oid).strip() else None
-            except (ValueError, TypeError):
-                object_id = None
-
-        for col_idx, header in enumerate(headers):
-            if not header:
-                continue
-            value = row[col_idx] if col_idx < len(row) else None
-            staging.append({
-                "session_id": session_id,
-                "row_number": row_idx,
-                "object_id": object_id,
-                "attribute": header,
-                "value": str(value) if value is not None else None,
-            })
-
-    StagingExcelRepository(conn).insert_many(staging)
+    """Delegate to the public staging helper."""
+    _load_excel_to_staging_public(ws, conn, session_id, module_config)

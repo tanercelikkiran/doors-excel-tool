@@ -10,6 +10,7 @@ from doors_excel.api.sessions import (
     compute_file_sha256,
     session_file_path,
 )
+from doors_excel.api.staging import load_excel_to_staging
 from doors_excel.api.validate import validate_config, validate_excel
 
 __all__ = [
@@ -21,6 +22,8 @@ __all__ = [
     # validation
     "validate_config",
     "validate_excel",
+    # staging
+    "load_excel_to_staging",
     # diff
     "run_diff",
     # export
