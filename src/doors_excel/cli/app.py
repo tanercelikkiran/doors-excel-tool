@@ -15,6 +15,8 @@ from typing import Annotated, Optional
 import typer
 
 from doors_excel.api.export import export_module as export_module_api
+from doors_excel.api.import_ import execute_import as execute_import_api
+from doors_excel.api.import_ import stage_import as stage_import_api
 from doors_excel.api.rollback import generate_rollback_excel as generate_rollback_excel_api
 from doors_excel.cli.output import console, print_error, print_validation_result
 from doors_excel.common.exceptions import ConfigurationError, DoorsExcelError
@@ -182,10 +184,83 @@ def import_mod(
         bool,
         typer.Option("--force", help="Allow purge operations without secondary confirmation."),
     ] = False,
+    quiet: Annotated[
+        bool,
+        typer.Option("--quiet", "-q", help="Suppress non-error output."),
+    ] = False,
 ) -> None:
-    """Import an Excel file into DOORS. [Not yet implemented]"""
-    print_error("import command is not yet implemented.")
-    raise typer.Exit(1)
+    """Import an Excel file into DOORS."""
+    if config is None:
+        print_error("--config is required for import.")
+        raise typer.Exit(1)
+
+    from doors_excel.api.validate import validate_config
+
+    try:
+        project_cfg = validate_config(config)
+    except ConfigurationError as exc:
+        print_error(str(exc))
+        raise typer.Exit(1) from exc
+
+    mod_cfg = next(iter(project_cfg.modules), None)
+    if mod_cfg is None:
+        print_error("No module configuration found.")
+        raise typer.Exit(1)
+
+    try:
+        conn = DoorsConnection.open()
+    except Exception as exc:
+        print_error(f"Cannot connect to DOORS: {exc}")
+        raise typer.Exit(1) from exc
+
+    db_path = file.parent / (file.stem + ".db")
+
+    try:
+        session_id, stats = stage_import_api(
+            file,
+            mod_cfg,
+            db_path=db_path,
+            doors_conn=conn,
+        )
+    except DoorsExcelError as exc:
+        print_error(str(exc))
+        conn.close()
+        raise typer.Exit(1) from exc
+
+    if not quiet:
+        console.print(
+            f"Diff: [yellow]{stats.updated_count}[/] updated, "
+            f"[red]{stats.conflict_count}[/] conflicts, "
+            f"[green]{stats.new_count}[/] new, "
+            f"[red]{stats.deleted_count}[/] deleted"
+        )
+
+    if stats.conflict_count > 0 and policy != "excel-wins":
+        print_error(
+            f"{stats.conflict_count} conflict(s) found. "
+            "Use --policy excel-wins to apply Excel values, or resolve manually."
+        )
+        conn.close()
+        raise typer.Exit(1)
+
+    import sqlite3 as _sqlite3
+    from doors_excel.infrastructure.database.schema import apply_schema as _apply_schema
+
+    db_conn = _sqlite3.connect(str(db_path))
+    db_conn.row_factory = _sqlite3.Row
+    _apply_schema(db_conn)
+
+    try:
+        applied = execute_import_api(session_id, db_conn, doors_conn=conn, conflict_policy=policy)
+    except DoorsExcelError as exc:
+        print_error(str(exc))
+        raise typer.Exit(1) from exc
+    finally:
+        db_conn.close()
+        conn.close()
+
+    if not quiet:
+        console.print(f"[bold green]Applied[/] {applied} update(s) → {mod_cfg.module_path}")
 
 
 # ---------------------------------------------------------------------------

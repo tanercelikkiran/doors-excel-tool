@@ -105,15 +105,10 @@ class TestValidateWithFile:
 
 
 # ---------------------------------------------------------------------------
-# Stub commands (import is still a stub; export + rollback are real)
+# Stub commands (gui is still a stub)
 # ---------------------------------------------------------------------------
 
 class TestStubCommands:
-    def test_import_exits_one(self, tmp_path: Path) -> None:
-        xlsx = _write_valid_xlsx(tmp_path)
-        result = runner.invoke(app, ["import", "--file", str(xlsx)])
-        assert result.exit_code == 1
-
     def test_gui_command_exists(self) -> None:
         result = runner.invoke(app, ["gui", "--help"])
         assert result.exit_code == 0
@@ -187,3 +182,76 @@ class TestRollbackCommand:
             ["rollback", "--session", str(tmp_path / "no.json")],
         )
         assert result.exit_code == 1
+
+
+# ---------------------------------------------------------------------------
+# import (real implementation)
+# ---------------------------------------------------------------------------
+
+class TestImportCommand:
+    def _write_import_xlsx(self, tmp_path: Path) -> Path:
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "mod"
+        ws.append(["Absolute Number", "Object Text", "Short Name"])
+        ws.append([1, "updated text", "sn"])
+        p = tmp_path / "data.xlsx"
+        wb.save(p)
+        return p
+
+    def test_import_succeeds_with_mocked_api(self, tmp_path: Path) -> None:
+        from doors_excel.core.diff.engine import DiffStats
+
+        cfg = _write_valid_config(tmp_path)
+        xlsx = self._write_import_xlsx(tmp_path)
+        stats = DiffStats(new_count=0, deleted_count=0, updated_count=1, conflict_count=0, moved_count=0)
+        with patch("doors_excel.cli.app.DoorsConnection") as MockConn, \
+             patch("doors_excel.cli.app.stage_import_api", return_value=("sid1", stats)), \
+             patch("doors_excel.cli.app.execute_import_api", return_value=1):
+            MockConn.open.return_value = MagicMock()
+            result = runner.invoke(
+                app,
+                ["import", "--file", str(xlsx), "--config", str(cfg)],
+            )
+        assert result.exit_code == 0
+
+    def test_import_exits_one_when_conflicts_present_and_doors_wins_policy(self, tmp_path: Path) -> None:
+        from doors_excel.core.diff.engine import DiffStats
+
+        cfg = _write_valid_config(tmp_path)
+        xlsx = self._write_import_xlsx(tmp_path)
+        stats = DiffStats(new_count=0, deleted_count=0, updated_count=0, conflict_count=2, moved_count=0)
+        with patch("doors_excel.cli.app.DoorsConnection") as MockConn, \
+             patch("doors_excel.cli.app.stage_import_api", return_value=("sid1", stats)), \
+             patch("doors_excel.cli.app.execute_import_api", return_value=0):
+            MockConn.open.return_value = MagicMock()
+            result = runner.invoke(
+                app,
+                ["import", "--file", str(xlsx), "--config", str(cfg), "--policy", "doors-wins"],
+            )
+        assert result.exit_code == 1
+
+    def test_import_missing_config_exits_one(self, tmp_path: Path) -> None:
+        xlsx = self._write_import_xlsx(tmp_path)
+        result = runner.invoke(
+            app,
+            ["import", "--file", str(xlsx), "--config", str(tmp_path / "missing.json")],
+        )
+        assert result.exit_code == 1
+
+    def test_import_quiet_suppresses_success_message(self, tmp_path: Path) -> None:
+        from doors_excel.core.diff.engine import DiffStats
+
+        cfg = _write_valid_config(tmp_path)
+        xlsx = self._write_import_xlsx(tmp_path)
+        stats = DiffStats(new_count=0, deleted_count=0, updated_count=1, conflict_count=0, moved_count=0)
+        with patch("doors_excel.cli.app.DoorsConnection") as MockConn, \
+             patch("doors_excel.cli.app.stage_import_api", return_value=("sid1", stats)), \
+             patch("doors_excel.cli.app.execute_import_api", return_value=1):
+            MockConn.open.return_value = MagicMock()
+            result = runner.invoke(
+                app,
+                ["import", "--file", str(xlsx), "--config", str(cfg), "--quiet"],
+            )
+        assert result.exit_code == 0
+        assert "Applied" not in result.output
