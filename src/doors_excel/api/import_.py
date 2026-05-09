@@ -6,6 +6,8 @@ from pathlib import Path
 
 from doors_excel.api.sessions import SessionManager
 from doors_excel.api.staging import load_excel_to_staging
+from doors_excel.common.types import ConflictPolicy
+from doors_excel.core.diff.conflict import apply_conflict_policy as _apply_policy
 from doors_excel.core.diff.engine import DiffStats, compute_diff
 from doors_excel.core.validation.models import ModuleConfig
 from doors_excel.infrastructure.database.repositories import (
@@ -79,15 +81,16 @@ def execute_import(
     conn: sqlite3.Connection,
     *,
     doors_conn: object,
-    conflict_policy: str = "excel-wins",
+    conflict_policy: ConflictPolicy = "excel-wins",
     module_path: str | None = None,
 ) -> int:
-    """Apply UPDATED diff_results to DOORS. Returns count of updates applied.
+    """Apply UPDATED and CONFLICT diff_results to DOORS. Returns count applied.
 
-    Only UPDATED rows are applied unconditionally.
-    CONFLICT rows are applied only when ``resolved_value`` is set.
-    NEW and DELETED changes are skipped (require additional UI gates).
+    Resolves CONFLICT rows via *conflict_policy* before querying.
+    NEW and DELETED changes are skipped (handled by separate helpers).
     """
+    _apply_policy(conn, session_id, conflict_policy)
+
     rows = conn.execute(
         """
         SELECT dr.object_id, dr.attribute,

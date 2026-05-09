@@ -196,7 +196,33 @@ class TestExecuteImport:
         with patch("doors_excel.api.import_.DoorsImporter") as MockImporter:
             mock_instance = MagicMock()
             MockImporter.return_value = mock_instance
-            count = execute_import("s3", conn, doors_conn=MagicMock())
+            count = execute_import("s3", conn, doors_conn=MagicMock(), conflict_policy="content-based")
 
         mock_instance.apply_updates.assert_not_called()
         assert count == 0
+
+    def test_conflict_resolved_with_excel_wins_policy(self, tmp_path: Path) -> None:
+        from doors_excel.api.import_ import execute_import
+
+        conn = self._make_conn(tmp_path)
+        conn.execute(
+            "INSERT INTO sessions (session_id, excel_path, doors_module, excel_sha256, module_version)"
+            " VALUES ('s4', 'f.xlsx', '/proj/mod', 'abc', 'current')"
+        )
+        conn.execute(
+            "INSERT INTO diff_results (session_id, object_id, attribute, change_type,"
+            " excel_value, doors_value, baseline_value, resolved_value)"
+            " VALUES ('s4', 1, 'Object Text', 'CONFLICT', 'excel_val', 'doors_val', 'base_val', NULL)"
+        )
+        conn.commit()
+
+        with patch("doors_excel.api.import_.DoorsImporter") as MockImporter:
+            mock_instance = MagicMock()
+            MockImporter.return_value = mock_instance
+            count = execute_import("s4", conn, doors_conn=MagicMock(), conflict_policy="excel-wins")
+
+        mock_instance.apply_updates.assert_called_once()
+        updates = mock_instance.apply_updates.call_args[0][1]
+        assert len(updates) == 1
+        assert updates[0]["value"] == "excel_val"
+        assert count == 1
