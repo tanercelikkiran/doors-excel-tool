@@ -48,7 +48,11 @@ def load_excel_to_staging(
                 continue
             value = row[col_idx] if col_idx < len(row) else None
             str_value = str(value) if value is not None else None
-            md_hash = hash_markdown(str_value) if header in text_cols and str_value is not None else None
+            md_hash = (
+                hash_markdown(str_value)
+                if header in text_cols and str_value is not None
+                else None
+            )
             staging.append({
                 "session_id": session_id,
                 "row_number": row_idx,
