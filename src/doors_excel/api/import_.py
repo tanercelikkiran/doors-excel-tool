@@ -118,10 +118,12 @@ def execute_import(
                rs.original_rtf
         FROM diff_results dr
         JOIN sessions s ON s.session_id = dr.session_id
-        LEFT JOIN staging_excel se
-            ON se.session_id = dr.session_id
-           AND se.object_id  = dr.object_id
-           AND se.attribute  = dr.attribute
+        LEFT JOIN (
+            SELECT session_id, object_id, attribute, md_hash
+            FROM staging_excel
+            WHERE session_id = :sid
+            GROUP BY session_id, object_id, attribute
+        ) se ON se.object_id = dr.object_id AND se.attribute = dr.attribute
         LEFT JOIN staging_doors sd
             ON sd.session_id = dr.session_id
            AND sd.object_id  = dr.object_id
@@ -130,13 +132,13 @@ def execute_import(
             ON rs.session_id = dr.session_id
            AND rs.object_id  = dr.object_id
            AND rs.attribute  = dr.attribute
-        WHERE dr.session_id = ?
+        WHERE dr.session_id = :sid
           AND (
               (dr.change_type = 'UPDATED')
               OR (dr.change_type = 'CONFLICT' AND dr.resolved_value IS NOT NULL)
           )
         """,
-        (session_id,),
+        {"sid": session_id},
     ).fetchall()
 
     if not rows:
