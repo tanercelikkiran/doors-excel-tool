@@ -10,6 +10,7 @@ from doors_excel.common.types import ConflictPolicy
 from doors_excel.core.diff.conflict import apply_conflict_policy as _apply_policy
 from doors_excel.core.diff.engine import DiffStats, compute_diff
 from doors_excel.core.transformation.hashing import hash_markdown as _hash_md
+from doors_excel.core.transformation.markdown_to_rtf import markdown_to_rtf
 from doors_excel.core.transformation.rtf_to_markdown import rtf_to_markdown
 from doors_excel.core.validation.models import ModuleConfig
 from doors_excel.infrastructure.database.repositories import (
@@ -93,11 +94,13 @@ def execute_import(
     doors_conn: object,
     conflict_policy: ConflictPolicy = "excel-wins",
     module_path: str | None = None,
+    module_config: "ModuleConfig | None" = None,
 ) -> int:
     """Apply UPDATED and CONFLICT diff_results to DOORS. Returns count applied.
 
-    Resolves CONFLICT rows via *conflict_policy* before querying.
-    NEW and DELETED changes are skipped (handled by separate helpers).
+    Text-type attributes are converted from GFM Markdown to RTF before writing.
+    If the md_hash is unchanged (REQ-FUN-105.4) and DOORS value matches baseline,
+    the original RTF is restored from rollback_snapshots to avoid formatting loss.
     """
     _apply_policy(conn, session_id, conflict_policy)
 
@@ -107,9 +110,26 @@ def execute_import(
                CASE WHEN dr.change_type = 'CONFLICT' THEN dr.resolved_value
                     ELSE dr.excel_value
                END AS apply_value,
-               s.doors_module
+               s.doors_module,
+               se.md_hash  AS excel_md_hash,
+               sd.md_hash  AS doors_md_hash,
+               dr.doors_value,
+               dr.baseline_value,
+               rs.original_rtf
         FROM diff_results dr
         JOIN sessions s ON s.session_id = dr.session_id
+        LEFT JOIN staging_excel se
+            ON se.session_id = dr.session_id
+           AND se.object_id  = dr.object_id
+           AND se.attribute  = dr.attribute
+        LEFT JOIN staging_doors sd
+            ON sd.session_id = dr.session_id
+           AND sd.object_id  = dr.object_id
+           AND sd.attribute  = dr.attribute
+        LEFT JOIN rollback_snapshots rs
+            ON rs.session_id = dr.session_id
+           AND rs.object_id  = dr.object_id
+           AND rs.attribute  = dr.attribute
         WHERE dr.session_id = ?
           AND (
               (dr.change_type = 'UPDATED')
@@ -122,11 +142,32 @@ def execute_import(
     if not rows:
         return 0
 
+    text_attrs: set[str] = set()
+    if module_config is not None:
+        text_attrs = {m.attribute for m in module_config.column_mappings if m.attribute_type == "Text"}
+
     mod_path = module_path or rows[0]["doors_module"]
-    updates = [
-        {"object_id": r["object_id"], "attribute": r["attribute"], "value": r["apply_value"]}
-        for r in rows
-    ]
+    updates = []
+    for r in rows:
+        value = r["apply_value"] or ""
+        if r["attribute"] in text_attrs:
+            excel_hash = r["excel_md_hash"]
+            doors_hash = r["doors_md_hash"]
+            doors_val = r["doors_value"]
+            base_val = r["baseline_value"]
+            if (excel_hash is not None
+                    and doors_hash is not None
+                    and excel_hash == doors_hash
+                    and doors_val == base_val
+                    and r["original_rtf"] is not None):
+                value = r["original_rtf"]
+            else:
+                value = markdown_to_rtf(value)
+        updates.append({
+            "object_id": r["object_id"],
+            "attribute": r["attribute"],
+            "value": value,
+        })
 
     importer = DoorsImporter(doors_conn)
     importer.apply_updates(mod_path, updates)

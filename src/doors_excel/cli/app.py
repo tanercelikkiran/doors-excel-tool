@@ -251,7 +251,12 @@ def import_mod(
     _apply_schema(db_conn)
 
     try:
-        applied = execute_import_api(session_id, db_conn, doors_conn=conn, conflict_policy=policy)
+        applied = execute_import_api(
+            session_id, db_conn,
+            doors_conn=conn,
+            conflict_policy=policy,
+            module_config=mod_cfg,
+        )
     except DoorsExcelError as exc:
         print_error(str(exc))
         raise typer.Exit(1) from exc

@@ -226,3 +226,82 @@ class TestExecuteImport:
         assert len(updates) == 1
         assert updates[0]["value"] == "excel_val"
         assert count == 1
+
+    def test_text_attribute_converted_to_rtf(self, tmp_path: Path) -> None:
+        from doors_excel.api.import_ import execute_import
+        from doors_excel.core.validation.models import ColumnMapping, ModuleConfig
+
+        mod_config = ModuleConfig(
+            module_path="/proj/mod",
+            column_mappings=[
+                ColumnMapping(column="Object Text", attribute="Object Text", attribute_type="Text"),
+            ],
+        )
+        conn = self._make_conn(tmp_path)
+        conn.execute(
+            "INSERT INTO sessions (session_id, excel_path, doors_module, excel_sha256, module_version)"
+            " VALUES ('s5', 'f.xlsx', '/proj/mod', 'abc', 'current')"
+        )
+        conn.execute(
+            "INSERT INTO diff_results (session_id, object_id, attribute, change_type,"
+            " excel_value, doors_value, baseline_value)"
+            " VALUES ('s5', 1, 'Object Text', 'UPDATED', '**bold**', 'original', 'original')"
+        )
+        conn.commit()
+
+        with patch("doors_excel.api.import_.DoorsImporter") as MockImporter:
+            mock_instance = MagicMock()
+            MockImporter.return_value = mock_instance
+            execute_import("s5", conn, doors_conn=MagicMock(), module_config=mod_config)
+
+        updates = mock_instance.apply_updates.call_args[0][1]
+        assert updates[0]["value"].startswith("{\\rtf1")
+
+    def test_md_hash_bypass_restores_original_rtf(self, tmp_path: Path) -> None:
+        from doors_excel.api.import_ import execute_import
+        from doors_excel.core.validation.models import ColumnMapping, ModuleConfig
+        from doors_excel.core.transformation.hashing import hash_markdown
+
+        mod_config = ModuleConfig(
+            module_path="/proj/mod",
+            column_mappings=[
+                ColumnMapping(column="Object Text", attribute="Object Text", attribute_type="Text"),
+            ],
+        )
+        same_hash = hash_markdown("hello world")
+        conn = self._make_conn(tmp_path)
+        conn.execute(
+            "INSERT INTO sessions (session_id, excel_path, doors_module, excel_sha256, module_version)"
+            " VALUES ('s6', 'f.xlsx', '/proj/mod', 'abc', 'current')"
+        )
+        conn.execute(
+            "INSERT INTO diff_results (session_id, object_id, attribute, change_type,"
+            " excel_value, doors_value, baseline_value)"
+            " VALUES ('s6', 1, 'Object Text', 'UPDATED', 'hello world', 'hello world (rtf)', 'hello world (rtf)')"
+        )
+        # staging_excel with matching md_hash
+        conn.execute(
+            "INSERT INTO staging_excel (session_id, row_number, object_id, attribute, value, md_hash)"
+            " VALUES ('s6', 2, 1, 'Object Text', 'hello world', ?)",
+            (same_hash,),
+        )
+        # staging_doors with same md_hash
+        conn.execute(
+            "INSERT INTO staging_doors (session_id, object_id, attribute, value, md_hash, has_ole)"
+            " VALUES ('s6', 1, 'Object Text', 'hello world (rtf)', ?, 0)",
+            (same_hash,),
+        )
+        # rollback snapshot with original RTF
+        conn.execute(
+            "INSERT INTO rollback_snapshots (session_id, object_id, attribute, original_value, original_rtf)"
+            " VALUES ('s6', 1, 'Object Text', 'hello world', '{\\rtf1 original}')"
+        )
+        conn.commit()
+
+        with patch("doors_excel.api.import_.DoorsImporter") as MockImporter:
+            mock_instance = MagicMock()
+            MockImporter.return_value = mock_instance
+            execute_import("s6", conn, doors_conn=MagicMock(), module_config=mod_config)
+
+        updates = mock_instance.apply_updates.call_args[0][1]
+        assert updates[0]["value"] == "{\\rtf1 original}"
