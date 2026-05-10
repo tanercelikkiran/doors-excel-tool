@@ -15,6 +15,7 @@ from typing import Annotated, Optional
 import typer
 
 from doors_excel.api.export import export_module as export_module_api
+from doors_excel.api.sessions import SessionManager
 from doors_excel.api.import_ import execute_import as execute_import_api
 from doors_excel.api.import_ import stage_import as stage_import_api
 from doors_excel.api.rollback import generate_rollback_excel as generate_rollback_excel_api
@@ -147,6 +148,8 @@ def export(
         print_error(f"Cannot connect to DOORS: {exc}")
         raise typer.Exit(1) from exc
 
+    db_path = out_path.with_suffix(".db")
+    session_mgr = SessionManager(db_path)
     try:
         result_path = export_module_api(
             mod_cfg.module_path,
@@ -154,11 +157,13 @@ def export(
             out_path,
             doors_conn=conn,
             baseline=baseline,
+            session_manager=session_mgr,
         )
     except DoorsExcelError as exc:
         print_error(str(exc))
         raise typer.Exit(1) from exc
     finally:
+        session_mgr.close()
         conn.close()
 
     if not quiet:

@@ -90,6 +90,7 @@ class SessionManager:
     def __init__(self, db_path: Path | str) -> None:
         self.db_path = Path(db_path)
         self._conn: sqlite3.Connection | None = None
+        self._last_session_id: str | None = None
 
     # ------------------------------------------------------------------
     # Connection
@@ -140,8 +141,14 @@ class SessionManager:
             module_version=module_version,
             db_path=self.db_path,
         )
+        self._last_session_id = session_id
         _write_session_file(info)
         return info
+
+    @property
+    def last_session_id(self) -> str | None:
+        """Session ID of the most recently created session, or None."""
+        return self._last_session_id
 
     def resume(self, session_file: Path | str) -> SessionInfo:
         """Load a previous session from *session_file* (the sidecar JSON).

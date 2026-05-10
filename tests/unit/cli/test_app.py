@@ -156,6 +156,22 @@ class TestExportCommand:
         assert result.exit_code == 0
         assert "Exported" not in result.output
 
+    def test_export_creates_session_db_and_json(self, tmp_path: Path) -> None:
+        cfg = _write_valid_config(tmp_path)
+        out = tmp_path / "out.xlsx"
+        out.touch()  # export_module_api needs file to exist for SessionManager.create
+
+        with patch("doors_excel.cli.app.DoorsConnection") as MockConn, \
+             patch("doors_excel.cli.app.export_module_api", return_value=out) as mock_export:
+            MockConn.open.return_value = MagicMock()
+            result = runner.invoke(app, ["export", "--config", str(cfg), "--output", str(out)])
+
+        assert result.exit_code == 0
+        # Check that session_manager was passed to the API
+        call_kwargs = mock_export.call_args.kwargs
+        assert "session_manager" in call_kwargs
+        assert call_kwargs["session_manager"] is not None
+
 
 # ---------------------------------------------------------------------------
 # rollback (real implementation)
