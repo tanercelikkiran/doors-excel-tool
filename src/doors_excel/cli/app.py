@@ -184,6 +184,10 @@ def import_mod(
         bool,
         typer.Option("--force", help="Allow purge operations without secondary confirmation."),
     ] = False,
+    include_new: Annotated[
+        bool,
+        typer.Option("--include-new", help="Create NEW objects (rows with no Absolute Number) in DOORS."),
+    ] = False,
     quiet: Annotated[
         bool,
         typer.Option("--quiet", "-q", help="Suppress non-error output."),
@@ -256,6 +260,7 @@ def import_mod(
             doors_conn=conn,
             conflict_policy=policy,
             module_config=mod_cfg,
+            include_new=include_new,
         )
     except DoorsExcelError as exc:
         print_error(str(exc))

@@ -305,3 +305,73 @@ class TestExecuteImport:
 
         updates = mock_instance.apply_updates.call_args[0][1]
         assert updates[0]["value"] == "{\\rtf1 original}"
+
+
+class TestExecuteNewObjects:
+    def _make_conn_with_new_rows(self, tmp_path: Path) -> tuple:
+        """Return (conn, session_id) with two NEW diff rows."""
+        conn = sqlite3.connect(str(tmp_path / "test.db"))
+        conn.row_factory = sqlite3.Row
+        apply_schema(conn)
+        sid = "snew"
+        conn.execute(
+            "INSERT INTO sessions (session_id, excel_path, doors_module, excel_sha256, module_version)"
+            " VALUES (?, 'f.xlsx', '/proj/mod', 'abc', 'current')",
+            (sid,),
+        )
+        conn.execute(
+            "INSERT INTO diff_results (session_id, object_id, attribute, change_type, row_number)"
+            " VALUES (?, NULL, NULL, 'NEW', 2)",
+            (sid,),
+        )
+        conn.execute(
+            "INSERT INTO staging_excel (session_id, row_number, object_id, attribute, value)"
+            " VALUES (?, 2, NULL, 'Object Text', 'new text')",
+            (sid,),
+        )
+        conn.execute(
+            "INSERT INTO staging_excel (session_id, row_number, object_id, attribute, value)"
+            " VALUES (?, 2, NULL, '_Parent_ID', '5')",
+            (sid,),
+        )
+        conn.commit()
+        return conn, sid
+
+    def test_new_objects_passed_to_create_objects(self, tmp_path: Path) -> None:
+        from doors_excel.api.import_ import execute_import
+        from doors_excel.core.validation.models import ColumnMapping, ModuleConfig
+
+        mod_config = ModuleConfig(
+            module_path="/proj/mod",
+            column_mappings=[
+                ColumnMapping(column="Object Text", attribute="Object Text", attribute_type="Text"),
+            ],
+        )
+        conn, sid = self._make_conn_with_new_rows(tmp_path)
+
+        with patch("doors_excel.api.import_.DoorsImporter") as MockImporter:
+            mock_instance = MagicMock()
+            MockImporter.return_value = mock_instance
+            count = execute_import(
+                sid, conn, doors_conn=MagicMock(),
+                include_new=True, module_config=mod_config,
+            )
+
+        mock_instance.create_objects.assert_called_once()
+        objects = mock_instance.create_objects.call_args[0][1]
+        assert len(objects) == 1
+        assert objects[0]["parent_id"] == 5
+        assert objects[0]["attributes"]["Object Text"] == "new text"
+        assert count >= 1
+
+    def test_new_objects_skipped_when_include_new_false(self, tmp_path: Path) -> None:
+        from doors_excel.api.import_ import execute_import
+
+        conn, sid = self._make_conn_with_new_rows(tmp_path)
+
+        with patch("doors_excel.api.import_.DoorsImporter") as MockImporter:
+            mock_instance = MagicMock()
+            MockImporter.return_value = mock_instance
+            execute_import(sid, conn, doors_conn=MagicMock(), include_new=False)
+
+        mock_instance.create_objects.assert_not_called()

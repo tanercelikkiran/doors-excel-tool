@@ -95,12 +95,16 @@ def execute_import(
     conflict_policy: ConflictPolicy = "excel-wins",
     module_path: str | None = None,
     module_config: "ModuleConfig | None" = None,
+    include_new: bool = False,
 ) -> int:
     """Apply UPDATED and CONFLICT diff_results to DOORS. Returns count applied.
 
     Text-type attributes are converted from GFM Markdown to RTF before writing.
     If the md_hash is unchanged (REQ-FUN-105.4) and DOORS value matches baseline,
     the original RTF is restored from rollback_snapshots to avoid formatting loss.
+
+    When *include_new* is True, rows with change_type='NEW' are also created as
+    new DOORS objects via :meth:`DoorsImporter.create_objects`.
     """
     _apply_policy(conn, session_id, conflict_policy)
 
@@ -141,36 +145,98 @@ def execute_import(
         {"sid": session_id},
     ).fetchall()
 
-    if not rows:
-        return 0
+    # Resolve module path (param → rows[0] → sessions lookup)
+    if module_path is not None:
+        mod_path = module_path
+    elif rows:
+        mod_path = rows[0]["doors_module"]
+    else:
+        sr = conn.execute(
+            "SELECT doors_module FROM sessions WHERE session_id = ?", (session_id,)
+        ).fetchone()
+        mod_path = sr["doors_module"] if sr else ""
 
-    text_attrs: set[str] = set()
+    applied = 0
+
+    if rows:
+        text_attrs: set[str] = set()
+        if module_config is not None:
+            text_attrs = {m.attribute for m in module_config.column_mappings if m.attribute_type == "Text"}
+
+        updates = []
+        for r in rows:
+            value = r["apply_value"] or ""
+            if r["attribute"] in text_attrs:
+                excel_hash = r["excel_md_hash"]
+                doors_hash = r["doors_md_hash"]
+                doors_val = r["doors_value"]
+                base_val = r["baseline_value"]
+                if (excel_hash is not None
+                        and doors_hash is not None
+                        and excel_hash == doors_hash
+                        and doors_val == base_val
+                        and r["original_rtf"] is not None):
+                    value = r["original_rtf"]
+                else:
+                    value = markdown_to_rtf(value)
+            updates.append({
+                "object_id": r["object_id"],
+                "attribute": r["attribute"],
+                "value": value,
+            })
+
+        importer = DoorsImporter(doors_conn)
+        importer.apply_updates(mod_path, updates)
+        applied += len(updates)
+
+    if include_new:
+        new_objects = _collect_new_objects(conn, session_id, module_config)
+        if new_objects:
+            DoorsImporter(doors_conn).create_objects(mod_path, new_objects)
+            applied += len(new_objects)
+
+    return applied
+
+
+_NEW_SKIP_COLS = frozenset({"Absolute Number", "_Parent_ID", "_Placement", "Level", "Parent Absolute Number"})
+
+
+def _collect_new_objects(
+    conn: sqlite3.Connection,
+    session_id: str,
+    module_config: "ModuleConfig | None" = None,
+) -> list[dict]:
+    """Return a list of new-object dicts grouped by row_number."""
+    new_rows = conn.execute(
+        "SELECT DISTINCT row_number FROM diff_results WHERE session_id = ? AND change_type = 'NEW'",
+        (session_id,),
+    ).fetchall()
+
+    skip_cols = set(_NEW_SKIP_COLS)
     if module_config is not None:
-        text_attrs = {m.attribute for m in module_config.column_mappings if m.attribute_type == "Text"}
+        skip_cols.add(module_config.object_id_column)
 
-    mod_path = module_path or rows[0]["doors_module"]
-    updates = []
-    for r in rows:
-        value = r["apply_value"] or ""
-        if r["attribute"] in text_attrs:
-            excel_hash = r["excel_md_hash"]
-            doors_hash = r["doors_md_hash"]
-            doors_val = r["doors_value"]
-            base_val = r["baseline_value"]
-            if (excel_hash is not None
-                    and doors_hash is not None
-                    and excel_hash == doors_hash
-                    and doors_val == base_val
-                    and r["original_rtf"] is not None):
-                value = r["original_rtf"]
-            else:
-                value = markdown_to_rtf(value)
-        updates.append({
-            "object_id": r["object_id"],
-            "attribute": r["attribute"],
-            "value": value,
-        })
+    objects = []
+    for nr in new_rows:
+        rn = nr["row_number"]
+        attr_rows = conn.execute(
+            "SELECT attribute, value FROM staging_excel WHERE session_id = ? AND row_number = ?",
+            (session_id, rn),
+        ).fetchall()
 
-    importer = DoorsImporter(doors_conn)
-    importer.apply_updates(mod_path, updates)
-    return len(updates)
+        parent_id: int | None = None
+        attrs: dict[str, str] = {}
+        for ar in attr_rows:
+            attr, val = ar["attribute"], ar["value"]
+            if attr == "_Parent_ID":
+                try:
+                    parent_id = int(val) if val else None
+                except (ValueError, TypeError):
+                    parent_id = None
+            elif attr not in skip_cols and val is not None:
+                attrs[attr] = val
+
+        if attrs:
+            objects.append({"parent_id": parent_id, "attributes": attrs})
+
+    return objects

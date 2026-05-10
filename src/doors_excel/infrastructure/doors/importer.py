@@ -27,3 +27,16 @@ class DoorsImporter:
         )
         for chunk in chunk_dxl(script):
             self._conn.run_dxl(chunk)
+
+    def create_objects(self, module_path: str, objects: list[dict]) -> None:
+        """Create new objects in *module_path*.
+
+        Each dict in *objects* must have:
+            ``parent_id``: int | None  — DOORS Absolute Number of parent (None = root)
+            ``attributes``: dict[str, str]  — attribute name → value string
+        """
+        if not objects:
+            return
+        script = render_template("create_objects.dxl.j2", module_path=module_path, objects=objects)
+        for chunk in chunk_dxl(script):
+            self._conn.run_dxl(chunk)

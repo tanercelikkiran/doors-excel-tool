@@ -1,0 +1,30 @@
+// create_objects.dxl.j2 — creates new DOORS objects in {{ module_path | dxl_value }}
+Module m = edit("{{ module_path | dxl_value }}", false)
+if null m then {
+    print "DOORS_IMPORT_ERROR: Cannot open module {{ module_path | dxl_value }}\n"
+    halt
+}
+
+{% for obj in objects %}
+{
+    Object new_obj
+    {% if obj.parent_id %}
+    Object parent_obj = object({{ obj.parent_id }}, m)
+    if null parent_obj then {
+        new_obj = create(m)
+    } else {
+        new_obj = create(parent_obj, after)
+    }
+    {% else %}
+    new_obj = create(m)
+    {% endif %}
+    if !null new_obj then {
+        {% for attr, val in obj.attributes.items() %}
+        new_obj."{{ attr | dxl_value }}" = "{{ val | dxl_value }}"
+        {% endfor %}
+    }
+}
+{% endfor %}
+
+save(m)
+close(m)
