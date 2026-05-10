@@ -362,6 +362,8 @@ class TestExecuteNewObjects:
         assert len(objects) == 1
         assert objects[0]["parent_id"] == 5
         assert objects[0]["attributes"]["Object Text"] == "new text"
+        assert "_Parent_ID" not in objects[0]["attributes"]
+        assert "_Placement" not in objects[0]["attributes"]
         assert count >= 1
 
     def test_new_objects_skipped_when_include_new_false(self, tmp_path: Path) -> None:

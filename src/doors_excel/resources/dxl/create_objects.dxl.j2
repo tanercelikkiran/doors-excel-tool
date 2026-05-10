@@ -9,11 +9,15 @@ if null m then {
 {
     Object new_obj
     {% if obj.parent_id %}
-    Object parent_obj = object({{ obj.parent_id }}, m)
+    Object parent_obj = object({{ obj.parent_id | dxl_value }}, m)
     if null parent_obj then {
         new_obj = create(m)
     } else {
+        {% if obj.placement == "after" %}
         new_obj = create(parent_obj, after)
+        {% else %}
+        new_obj = create(parent_obj, below)
+        {% endif %}
     }
     {% else %}
     new_obj = create(m)

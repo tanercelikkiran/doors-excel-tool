@@ -270,7 +270,7 @@ def import_mod(
         conn.close()
 
     if not quiet:
-        console.print(f"[bold green]Applied[/] {applied} update(s) → {mod_cfg.module_path}")
+        console.print(f"[bold green]Applied[/] {applied} change(s) → {mod_cfg.module_path}")
 
 
 # ---------------------------------------------------------------------------

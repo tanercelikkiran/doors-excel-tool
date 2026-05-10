@@ -225,6 +225,7 @@ def _collect_new_objects(
         ).fetchall()
 
         parent_id: int | None = None
+        placement: str = "below"  # default: create as child
         attrs: dict[str, str] = {}
         for ar in attr_rows:
             attr, val = ar["attribute"], ar["value"]
@@ -233,10 +234,12 @@ def _collect_new_objects(
                     parent_id = int(val) if val else None
                 except (ValueError, TypeError):
                     parent_id = None
+            elif attr == "_Placement":
+                placement = (val or "below").lower()
             elif attr not in skip_cols and val is not None:
                 attrs[attr] = val
 
         if attrs:
-            objects.append({"parent_id": parent_id, "attributes": attrs})
+            objects.append({"parent_id": parent_id, "placement": placement, "attributes": attrs})
 
     return objects
