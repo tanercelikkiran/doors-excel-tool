@@ -297,3 +297,29 @@ def test_md_hash_bypass_classifies_unchanged(conn) -> None:
     stats = compute_diff(conn, SID)
     assert stats.updated_count == 0
     assert stats.conflict_count == 0
+
+
+def test_md_hash_bypass_does_not_suppress_conflict_when_doors_also_changed(conn) -> None:
+    """When DOORS diverged from baseline, matching hashes must not suppress a CONFLICT."""
+    same_hash = "abc123"
+    conn.execute(
+        "INSERT INTO staging_baseline (session_id, object_id, attribute, value)"
+        " VALUES (?, 1, 'Object Text', 'foo')",
+        (SID,),
+    )
+    conn.execute(
+        "INSERT INTO staging_doors"
+        " (session_id, object_id, attribute, value, md_hash, has_ole)"
+        " VALUES (?, 1, 'Object Text', 'bar', ?, 0)",
+        (SID, same_hash),
+    )
+    conn.execute(
+        "INSERT INTO staging_excel"
+        " (session_id, row_number, object_id, attribute, value, md_hash)"
+        " VALUES (?, 2, 1, 'Object Text', 'bar', ?)",
+        (SID, same_hash),
+    )
+    conn.commit()
+    stats = compute_diff(conn, SID)
+    assert stats.conflict_count == 1
+    assert stats.updated_count == 0

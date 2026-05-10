@@ -194,6 +194,7 @@ def _insert_attribute_changes(conn: sqlite3.Connection, session_id: str) -> None
                           excel_md_hash IS NOT NULL
                           AND doors_md_hash IS NOT NULL
                           AND excel_md_hash IS doors_md_hash
+                          AND doors_value IS baseline_value
                       )
                     THEN 'UNCHANGED'
                     WHEN (excel_value IS NOT baseline_value)
