@@ -96,6 +96,9 @@ def execute_import(
     module_path: str | None = None,
     module_config: "ModuleConfig | None" = None,
     include_new: bool = False,
+    deletion_policy: str = "ignore",
+    soft_delete_attribute: str = "Status",
+    soft_delete_value: str = "Deleted",
 ) -> int:
     """Apply UPDATED and CONFLICT diff_results to DOORS. Returns count applied.
 
@@ -195,7 +198,49 @@ def execute_import(
             DoorsImporter(doors_conn).create_objects(mod_path, new_objects)
             applied += len(new_objects)
 
+    applied += _handle_deleted_objects(
+        conn, session_id, mod_path, doors_conn,
+        deletion_policy, soft_delete_attribute, soft_delete_value,
+    )
+
     return applied
+
+
+def _handle_deleted_objects(
+    conn: sqlite3.Connection,
+    session_id: str,
+    mod_path: str,
+    doors_conn: object,
+    deletion_policy: str,
+    soft_delete_attribute: str,
+    soft_delete_value: str,
+) -> int:
+    if deletion_policy == "ignore":
+        return 0
+
+    deleted_rows = conn.execute(
+        "SELECT DISTINCT object_id FROM diff_results WHERE session_id = ? AND change_type = 'DELETED'",
+        (session_id,),
+    ).fetchall()
+    if not deleted_rows:
+        return 0
+
+    object_ids = [r["object_id"] for r in deleted_rows if r["object_id"] is not None]
+    importer = DoorsImporter(doors_conn)
+
+    if deletion_policy == "purge":
+        importer.delete_objects(mod_path, object_ids)
+        return len(object_ids)
+
+    if deletion_policy == "soft-delete":
+        updates = [
+            {"object_id": oid, "attribute": soft_delete_attribute, "value": soft_delete_value}
+            for oid in object_ids
+        ]
+        importer.apply_updates(mod_path, updates)
+        return len(object_ids)
+
+    return 0
 
 
 _NEW_SKIP_COLS = frozenset({"Absolute Number", "_Parent_ID", "_Placement", "Level", "Parent Absolute Number"})

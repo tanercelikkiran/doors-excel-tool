@@ -377,3 +377,66 @@ class TestExecuteNewObjects:
             execute_import(sid, conn, doors_conn=MagicMock(), include_new=False)
 
         mock_instance.create_objects.assert_not_called()
+
+
+class TestExecuteDeletedObjects:
+    def _make_conn_with_deleted_rows(self, tmp_path: Path) -> tuple:
+        conn = sqlite3.connect(str(tmp_path / "test.db"))
+        conn.row_factory = sqlite3.Row
+        apply_schema(conn)
+        sid = "sdel"
+        conn.execute(
+            "INSERT INTO sessions (session_id, excel_path, doors_module, excel_sha256, module_version)"
+            " VALUES (?, 'f.xlsx', '/proj/mod', 'abc', 'current')",
+            (sid,),
+        )
+        conn.execute(
+            "INSERT INTO diff_results (session_id, object_id, attribute, change_type)"
+            " VALUES (?, 99, NULL, 'DELETED')",
+            (sid,),
+        )
+        conn.commit()
+        return conn, sid
+
+    def test_deleted_objects_ignored_by_default(self, tmp_path: Path) -> None:
+        from doors_excel.api.import_ import execute_import
+
+        conn, sid = self._make_conn_with_deleted_rows(tmp_path)
+        with patch("doors_excel.api.import_.DoorsImporter") as MockImporter:
+            mock_instance = MagicMock()
+            MockImporter.return_value = mock_instance
+            execute_import(sid, conn, doors_conn=MagicMock(), deletion_policy="ignore")
+
+        mock_instance.delete_objects.assert_not_called()
+        mock_instance.apply_updates.assert_not_called()
+
+    def test_purge_calls_delete_objects(self, tmp_path: Path) -> None:
+        from doors_excel.api.import_ import execute_import
+
+        conn, sid = self._make_conn_with_deleted_rows(tmp_path)
+        with patch("doors_excel.api.import_.DoorsImporter") as MockImporter:
+            mock_instance = MagicMock()
+            MockImporter.return_value = mock_instance
+            execute_import(sid, conn, doors_conn=MagicMock(), deletion_policy="purge")
+
+        mock_instance.delete_objects.assert_called_once()
+        args = mock_instance.delete_objects.call_args
+        assert 99 in args[0][1]
+
+    def test_soft_delete_calls_apply_updates_with_status(self, tmp_path: Path) -> None:
+        from doors_excel.api.import_ import execute_import
+
+        conn, sid = self._make_conn_with_deleted_rows(tmp_path)
+        with patch("doors_excel.api.import_.DoorsImporter") as MockImporter:
+            mock_instance = MagicMock()
+            MockImporter.return_value = mock_instance
+            execute_import(
+                sid, conn, doors_conn=MagicMock(),
+                deletion_policy="soft-delete",
+                soft_delete_attribute="Status",
+                soft_delete_value="Deleted",
+            )
+
+        mock_instance.apply_updates.assert_called_once()
+        updates = mock_instance.apply_updates.call_args[0][1]
+        assert updates[0] == {"object_id": 99, "attribute": "Status", "value": "Deleted"}

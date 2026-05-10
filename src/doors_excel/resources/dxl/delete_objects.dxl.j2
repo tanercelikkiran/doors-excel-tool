@@ -1,0 +1,18 @@
+// delete_objects.dxl.j2 — purges objects from {{ module_path | dxl_value }}
+Module m = edit("{{ module_path | dxl_value }}", false)
+if null m then {
+    print "DOORS_IMPORT_ERROR: Cannot open module {{ module_path | dxl_value }}\n"
+    halt
+}
+
+{% for obj_id in object_ids %}
+{
+    Object o = object({{ obj_id | dxl_value }}, m)
+    if !null o then {
+        delete(o)
+    }
+}
+{% endfor %}
+
+save(m)
+close(m)

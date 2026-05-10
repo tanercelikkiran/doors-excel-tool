@@ -40,3 +40,14 @@ class DoorsImporter:
         script = render_template("create_objects.dxl.j2", module_path=module_path, objects=objects)
         for chunk in chunk_dxl(script):
             self._conn.run_dxl(chunk)
+
+    def delete_objects(self, module_path: str, object_ids: list[int]) -> None:
+        """Permanently delete *object_ids* from *module_path* in DOORS.
+
+        Purge is irreversible — callers must obtain user confirmation first.
+        """
+        if not object_ids:
+            return
+        script = render_template("delete_objects.dxl.j2", module_path=module_path, object_ids=object_ids)
+        for chunk in chunk_dxl(script):
+            self._conn.run_dxl(chunk)

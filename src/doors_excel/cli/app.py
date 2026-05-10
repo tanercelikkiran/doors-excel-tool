@@ -188,6 +188,10 @@ def import_mod(
         bool,
         typer.Option("--include-new", help="Create NEW objects (rows with no Absolute Number) in DOORS."),
     ] = False,
+    deletion_policy: Annotated[
+        str,
+        typer.Option("--deletion-policy", help="How to handle deleted rows: ignore|soft-delete|purge."),
+    ] = "ignore",
     quiet: Annotated[
         bool,
         typer.Option("--quiet", "-q", help="Suppress non-error output."),
@@ -239,6 +243,11 @@ def import_mod(
             f"[red]{stats.deleted_count}[/] deleted"
         )
 
+    if deletion_policy == "purge" and not force:
+        print_error("--deletion-policy purge requires --force flag.")
+        conn.close()
+        raise typer.Exit(1)
+
     if stats.conflict_count > 0 and policy != "excel-wins":
         print_error(
             f"{stats.conflict_count} conflict(s) found. "
@@ -261,6 +270,7 @@ def import_mod(
             conflict_policy=policy,
             module_config=mod_cfg,
             include_new=include_new,
+            deletion_policy=deletion_policy,
         )
     except DoorsExcelError as exc:
         print_error(str(exc))
