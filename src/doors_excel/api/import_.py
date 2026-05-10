@@ -240,7 +240,10 @@ def _handle_deleted_objects(
         importer.apply_updates(mod_path, updates)
         return len(object_ids)
 
-    return 0
+    raise ValueError(
+        f"Unknown deletion_policy {deletion_policy!r}. "
+        "Expected 'ignore', 'soft-delete', or 'purge'."
+    )
 
 
 _NEW_SKIP_COLS = frozenset({"Absolute Number", "_Parent_ID", "_Placement", "Level", "Parent Absolute Number"})

@@ -255,3 +255,21 @@ class TestImportCommand:
             )
         assert result.exit_code == 0
         assert "Applied" not in result.output
+
+    def test_purge_without_force_exits_one(self, tmp_path: Path) -> None:
+        from doors_excel.core.diff.engine import DiffStats
+
+        cfg = _write_valid_config(tmp_path)
+        xlsx = self._write_import_xlsx(tmp_path)
+        stats = DiffStats(new_count=0, deleted_count=1, updated_count=0, conflict_count=0, moved_count=0)
+        with patch("doors_excel.cli.app.DoorsConnection") as MockConn, \
+             patch("doors_excel.cli.app.stage_import_api", return_value=("sid1", stats)), \
+             patch("doors_excel.cli.app.execute_import_api", return_value=0):
+            MockConn.open.return_value = MagicMock()
+            result = runner.invoke(
+                app,
+                ["import", "--file", str(xlsx), "--config", str(cfg),
+                 "--deletion-policy", "purge"],
+            )
+        assert result.exit_code == 1
+        assert "force" in result.output.lower()
