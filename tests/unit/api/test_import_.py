@@ -549,4 +549,79 @@ def test_execute_import_calls_move_objects_for_moved_rows():
     assert len(moves_arg) == 1
     assert moves_arg[0]["object_id"] == 10
     assert moves_arg[0]["new_parent_id"] == 5
+
+
+def test_execute_import_skips_ole_objects_by_default():
+    """Objects with has_ole=1 in staging_doors must not be updated without --accept-ole-overwrites."""
+    import sqlite3
+    from unittest.mock import MagicMock, patch
+    from doors_excel.api.import_ import execute_import
+    from doors_excel.infrastructure.database.schema import apply_schema
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    apply_schema(conn)
+
+    conn.execute(
+        "INSERT INTO sessions(session_id, excel_path, doors_module, excel_sha256, module_version, status, created_at)"
+        " VALUES ('s1','/f.xlsx','/m','abc','current','active', datetime('now'))"
+    )
+    conn.execute(
+        "INSERT INTO diff_results(session_id, object_id, attribute, change_type, excel_value, doors_value)"
+        " VALUES ('s1', 42, 'Object Text', 'UPDATED', 'new text', 'old text')"
+    )
+    # Mark object 42 as having OLE content
+    conn.execute(
+        "INSERT INTO staging_doors(session_id, object_id, attribute, value, object_type, level, parent_id, has_ole)"
+        " VALUES ('s1', 42, 'Object Text', 'old text', 'shall', 1, NULL, 1)"
+    )
+    conn.commit()
+
+    mock_doors = MagicMock()
+    with patch("doors_excel.api.import_.DoorsImporter") as MockImporter:
+        mock_imp = MagicMock()
+        MockImporter.return_value = mock_imp
+        applied = execute_import("s1", conn, doors_conn=mock_doors, accept_ole_overwrites=False)
+
+    # Object 42 has OLE — apply_updates must not be called for it
+    for call in mock_imp.apply_updates.call_args_list:
+        updates = call.args[1] if len(call.args) > 1 else call.kwargs.get("updates", [])
+        for u in updates:
+            assert u.get("object_id") != 42, "OLE-protected object must be skipped"
+    assert applied == 0
+
+
+def test_execute_import_applies_ole_objects_when_accepted():
+    """With accept_ole_overwrites=True, OLE objects are updated normally."""
+    import sqlite3
+    from unittest.mock import MagicMock, patch
+    from doors_excel.api.import_ import execute_import
+    from doors_excel.infrastructure.database.schema import apply_schema
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    apply_schema(conn)
+
+    conn.execute(
+        "INSERT INTO sessions(session_id, excel_path, doors_module, excel_sha256, module_version, status, created_at)"
+        " VALUES ('s1','/f.xlsx','/m','abc','current','active', datetime('now'))"
+    )
+    conn.execute(
+        "INSERT INTO diff_results(session_id, object_id, attribute, change_type, excel_value, doors_value)"
+        " VALUES ('s1', 42, 'Object Text', 'UPDATED', 'new text', 'old text')"
+    )
+    conn.execute(
+        "INSERT INTO staging_doors(session_id, object_id, attribute, value, object_type, level, parent_id, has_ole)"
+        " VALUES ('s1', 42, 'Object Text', 'old text', 'shall', 1, NULL, 1)"
+    )
+    conn.commit()
+
+    mock_doors = MagicMock()
+    with patch("doors_excel.api.import_.DoorsImporter") as MockImporter:
+        mock_imp = MagicMock()
+        MockImporter.return_value = mock_imp
+        applied = execute_import("s1", conn, doors_conn=mock_doors, accept_ole_overwrites=True)
+
+    assert applied == 1
+    mock_imp.apply_updates.assert_called_once()
     assert applied == 1

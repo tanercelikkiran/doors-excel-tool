@@ -101,6 +101,7 @@ def execute_import(
     deletion_policy: str = "ignore",
     soft_delete_attribute: str = "Status",
     soft_delete_value: str = "Deleted",
+    accept_ole_overwrites: bool = False,
 ) -> int:
     """Apply UPDATED and CONFLICT diff_results to DOORS. Returns count applied.
 
@@ -150,6 +151,20 @@ def execute_import(
         """,
         {"sid": session_id},
     ).fetchall()
+
+    # Filter out OLE-protected objects if accept_ole_overwrites is False
+    if not accept_ole_overwrites and rows:
+        row_object_ids = list({r["object_id"] for r in rows})
+        if row_object_ids:
+            placeholders = ",".join("?" * len(row_object_ids))
+            ole_rows = conn.execute(
+                f"SELECT DISTINCT object_id FROM staging_doors "
+                f"WHERE session_id = ? AND has_ole = 1 AND object_id IN ({placeholders})",
+                [session_id] + row_object_ids,
+            ).fetchall()
+            ole_ids = {r["object_id"] for r in ole_rows}
+            if ole_ids:
+                rows = [r for r in rows if r["object_id"] not in ole_ids]
 
     # Resolve module path (param → rows[0] → sessions lookup)
     if module_path is not None:

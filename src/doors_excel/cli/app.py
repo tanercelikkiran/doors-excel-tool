@@ -206,6 +206,10 @@ def import_mod(
         str,
         typer.Option("--deletion-policy", help="How to handle deleted rows: ignore|soft-delete|purge."),
     ] = "ignore",
+    accept_ole_overwrites: Annotated[
+        bool,
+        typer.Option("--accept-ole-overwrites", help="Allow updates to objects that contain embedded OLE objects (images, files)."),
+    ] = False,
     quiet: Annotated[
         bool,
         typer.Option("--quiet", "-q", help="Suppress non-error output."),
@@ -339,6 +343,7 @@ def import_mod(
             module_config=mod_cfg,
             include_new=include_new,
             deletion_policy=deletion_policy,
+            accept_ole_overwrites=accept_ole_overwrites,
         )
     except DoorsExcelError as exc:
         print_error(str(exc))
