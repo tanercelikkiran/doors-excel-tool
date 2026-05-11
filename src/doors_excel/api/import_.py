@@ -143,7 +143,7 @@ def execute_import(
            AND rs.attribute  = dr.attribute
         WHERE dr.session_id = :sid
           AND (
-              (dr.change_type = 'UPDATED')
+              (dr.change_type = 'UPDATED' AND dr.attribute != '_Parent_ID')
               OR (dr.change_type = 'CONFLICT' AND dr.resolved_value IS NOT NULL)
           )
         """,
@@ -193,6 +193,42 @@ def execute_import(
         importer = DoorsImporter(doors_conn)
         importer.apply_updates(mod_path, updates)
         applied += len(updates)
+
+    # --- Handle MOVED objects ---
+    moved_rows = conn.execute(
+        """
+        SELECT DISTINCT dr.object_id,
+               se_parent.value AS new_parent_id,
+               se_place.value  AS placement
+        FROM diff_results dr
+        LEFT JOIN staging_excel se_parent
+               ON se_parent.session_id = dr.session_id
+              AND se_parent.object_id  = dr.object_id
+              AND se_parent.attribute  = '_Parent_ID'
+        LEFT JOIN staging_excel se_place
+               ON se_place.session_id = dr.session_id
+              AND se_place.object_id  = dr.object_id
+              AND se_place.attribute  = '_Placement'
+        WHERE dr.session_id = :sid
+          AND dr.change_type = 'MOVED'
+        """,
+        {"sid": session_id},
+    ).fetchall()
+
+    if moved_rows:
+        moves = []
+        for r in moved_rows:
+            try:
+                parent_id = int(r["new_parent_id"]) if r["new_parent_id"] else None
+            except (ValueError, TypeError):
+                parent_id = None
+            moves.append({
+                "object_id": r["object_id"],
+                "new_parent_id": parent_id,
+                "placement": (r["placement"] or "below").lower(),
+            })
+        DoorsImporter(doors_conn).move_objects(mod_path, moves)
+        applied += len(moves)
 
     if include_new:
         new_objects = _collect_new_objects(conn, session_id, module_config)

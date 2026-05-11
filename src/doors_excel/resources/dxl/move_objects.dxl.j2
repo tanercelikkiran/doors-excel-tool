@@ -1,0 +1,34 @@
+// move_objects.dxl.j2 — Relocate objects within {{ module_path | dxl_value }}
+// moves: list of {object_id, new_parent_id, placement}
+// placement: "below" (first child) | "after" (sibling after parent)
+Module m = edit("{{ module_path | dxl_value }}", false)
+if null m then {
+    print "DOORS_IMPORT_ERROR: Cannot open module {{ module_path | dxl_value }}\n"
+    halt
+}
+
+{% for mv in moves %}
+{
+    Object child = object({{ mv.object_id | dxl_value }}, m)
+    if !null child then {
+        {% if mv.new_parent_id is not none %}
+        Object newParent = object({{ mv.new_parent_id | dxl_value }}, m)
+        if !null newParent then {
+            {% if mv.placement == "after" %}
+            move(child, after, newParent)
+            {% else %}
+            move(child, below, newParent)
+            {% endif %}
+        }
+        {% else %}
+        Object root = object(0, m)
+        if !null root then {
+            move(child, below, root)
+        }
+        {% endif %}
+    }
+}
+{% endfor %}
+
+save(m)
+close(m)

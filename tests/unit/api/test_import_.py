@@ -467,3 +467,38 @@ class TestExecuteDeletedObjects:
         mock_instance.apply_updates.assert_called_once()
         updates = mock_instance.apply_updates.call_args[0][1]
         assert updates[0] == {"object_id": 99, "attribute": "Status", "value": "Deleted"}
+
+
+def test_execute_import_excludes_parent_id_from_updates():
+    """_Parent_ID attribute must not appear in apply_updates (handled by move_objects instead)."""
+    import sqlite3
+    from unittest.mock import MagicMock, patch
+    from doors_excel.api.import_ import execute_import
+    from doors_excel.infrastructure.database.schema import apply_schema
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    apply_schema(conn)
+
+    conn.execute(
+        "INSERT INTO sessions(session_id, excel_path, doors_module, excel_sha256, module_version, status, created_at)"
+        " VALUES ('s1','/f.xlsx','/m','abc','current','active', datetime('now'))"
+    )
+    # Insert a MOVED diff row for _Parent_ID
+    conn.execute(
+        "INSERT INTO diff_results(session_id, object_id, attribute, change_type, excel_value, doors_value)"
+        " VALUES ('s1', 10, '_Parent_ID', 'MOVED', '5', '3')"
+    )
+    conn.commit()
+
+    mock_doors = MagicMock()
+    with patch("doors_excel.api.import_.DoorsImporter") as MockImporter:
+        mock_imp = MagicMock()
+        MockImporter.return_value = mock_imp
+        execute_import("s1", conn, doors_conn=mock_doors)
+
+    # apply_updates must NOT have been called with _Parent_ID
+    for call in mock_imp.apply_updates.call_args_list:
+        updates = call.args[1] if len(call.args) > 1 else call.kwargs.get("updates", [])
+        for u in updates:
+            assert u.get("attribute") != "_Parent_ID", "_Parent_ID must not go through apply_updates"

@@ -51,3 +51,17 @@ class DoorsImporter:
         script = render_template("delete_objects.dxl.j2", module_path=module_path, object_ids=object_ids)
         for chunk in chunk_dxl(script):
             self._conn.run_dxl(chunk)
+
+    def move_objects(self, module_path: str, moves: list[dict]) -> None:
+        """Relocate objects within *module_path*.
+
+        Each dict in *moves* must have:
+            ``object_id``: int — Absolute Number of the object to move
+            ``new_parent_id``: int | None — new parent (None = module root)
+            ``placement``: str — "below" (first child) or "after" (sibling)
+        """
+        if not moves:
+            return
+        script = render_template("move_objects.dxl.j2", module_path=module_path, moves=moves)
+        for chunk in chunk_dxl(script):
+            self._conn.run_dxl(chunk)

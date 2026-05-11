@@ -64,3 +64,24 @@ class TestDoorsImporter:
         script_sent = mock_conn.run_dxl.call_args[0][0]
         assert "1" in script_sent
         assert "2" in script_sent
+
+
+def test_move_objects_calls_run_dxl(tmp_path):
+    """move_objects must render a DXL script and call conn.run_dxl."""
+    from unittest.mock import MagicMock, patch
+    from doors_excel.infrastructure.doors.importer import DoorsImporter
+
+    mock_conn = MagicMock()
+    importer = DoorsImporter(mock_conn)
+
+    moves = [{"object_id": 10, "new_parent_id": 5, "placement": "below"}]
+    with patch("doors_excel.infrastructure.doors.importer.render_template", return_value="DXL") as mock_render, \
+         patch("doors_excel.infrastructure.doors.importer.chunk_dxl", return_value=["DXL"]):
+        importer.move_objects("/proj/mod", moves)
+
+    mock_render.assert_called_once_with(
+        "move_objects.dxl.j2",
+        module_path="/proj/mod",
+        moves=moves,
+    )
+    mock_conn.run_dxl.assert_called_once_with("DXL")
