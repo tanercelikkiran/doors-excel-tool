@@ -234,6 +234,7 @@ def import_mod(
             mod_cfg,
             db_path=db_path,
             doors_conn=conn,
+            trim_whitespace=project_cfg.trim_whitespace,
         )
     except DoorsExcelError as exc:
         print_error(str(exc))

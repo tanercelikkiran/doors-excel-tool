@@ -18,6 +18,8 @@ def load_excel_to_staging(
     conn: sqlite3.Connection,
     session_id: str,
     module_config: "ModuleConfig",
+    *,
+    trim_whitespace: bool = True,
 ) -> None:
     """Read all rows from *ws* and insert into ``staging_excel``."""
     rows = list(ws.iter_rows(values_only=True))
@@ -52,7 +54,8 @@ def load_excel_to_staging(
             if value is not None:
                 str_value = str(value)
                 # Only trim if this is not a Text column (Text columns preserve RTF formatting)
-                if header not in text_cols:
+                # and if trim_whitespace is enabled
+                if header not in text_cols and trim_whitespace:
                     str_value = str_value.strip()
             else:
                 str_value = None

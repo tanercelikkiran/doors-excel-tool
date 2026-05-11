@@ -29,6 +29,7 @@ def stage_import(
     db_path: Path | str,
     doors_conn: object,
     baseline: str = "current",
+    trim_whitespace: bool = True,
 ) -> tuple[str, DiffStats]:
     """Stage an Excel import: load Excel + DOORS data into SQLite, compute diff.
 
@@ -48,7 +49,7 @@ def stage_import(
         # --- Stage Excel ---
         wb = open_workbook(p, formula_policy=FormulaPolicy.DATA_ONLY)
         ws = _pick_worksheet(wb, module_config)
-        load_excel_to_staging(ws, conn, sid, module_config)
+        load_excel_to_staging(ws, conn, sid, module_config, trim_whitespace=trim_whitespace)
 
         # --- Stage DOORS (current state = staging_doors AND staging_baseline) ---
         exporter = DoorsExporter(doors_conn)
