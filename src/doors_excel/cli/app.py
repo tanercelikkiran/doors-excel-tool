@@ -22,6 +22,7 @@ from doors_excel.api.rollback import generate_rollback_excel as generate_rollbac
 from doors_excel.cli.output import console, print_error, print_validation_result, print_diff_summary
 from doors_excel.common.exceptions import ConfigurationError, DoorsExcelError
 from doors_excel.infrastructure.doors.connection import DoorsConnection
+from doors_excel.infrastructure.doors.keepalive import KeepAliveWatchdog
 
 app = typer.Typer(
     name="doors-excel",
@@ -150,6 +151,8 @@ def export(
 
     db_path = out_path.with_suffix(".db")
     session_mgr = SessionManager(db_path)
+    watchdog = KeepAliveWatchdog(conn.run_dxl)
+    watchdog.start()
     try:
         result_path = export_module_api(
             mod_cfg.module_path,
@@ -163,6 +166,7 @@ def export(
         print_error(str(exc))
         raise typer.Exit(1) from exc
     finally:
+        watchdog.stop()
         session_mgr.close()
         conn.close()
 
@@ -263,6 +267,8 @@ def import_mod(
     db_conn.row_factory = _sqlite3.Row
     _apply_schema(db_conn)
 
+    watchdog = KeepAliveWatchdog(conn.run_dxl)
+    watchdog.start()
     try:
         applied = execute_import_api(
             session_id, db_conn,
@@ -276,6 +282,7 @@ def import_mod(
         print_error(str(exc))
         raise typer.Exit(1) from exc
     finally:
+        watchdog.stop()
         db_conn.close()
         conn.close()
 

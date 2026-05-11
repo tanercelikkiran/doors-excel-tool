@@ -172,6 +172,22 @@ class TestExportCommand:
         assert "session_manager" in call_kwargs
         assert call_kwargs["session_manager"] is not None
 
+    def test_export_starts_keepalive_watchdog(self, tmp_path: Path) -> None:
+        cfg = _write_valid_config(tmp_path)
+        out = tmp_path / "out.xlsx"
+        out.touch()
+        with patch("doors_excel.cli.app.DoorsConnection") as MockConn, \
+             patch("doors_excel.cli.app.export_module_api", return_value=out), \
+             patch("doors_excel.cli.app.KeepAliveWatchdog") as MockWatchdog:
+            MockConn.open.return_value = MagicMock()
+            mock_wd = MagicMock()
+            MockWatchdog.return_value = mock_wd
+            result = runner.invoke(app, ["export", "--config", str(cfg), "--output", str(out)])
+        assert result.exit_code == 0
+        MockWatchdog.assert_called_once()
+        mock_wd.start.assert_called_once()
+        mock_wd.stop.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # rollback (real implementation)
@@ -289,3 +305,22 @@ class TestImportCommand:
             )
         assert result.exit_code == 1
         assert "force" in result.output.lower()
+
+    def test_import_starts_keepalive_watchdog(self, tmp_path: Path) -> None:
+        from doors_excel.core.diff.summary import DiffSummary
+
+        cfg = _write_valid_config(tmp_path)
+        xlsx = self._write_import_xlsx(tmp_path)
+        stats = DiffSummary(new_count=0, deleted_count=0, updated_count=1, conflict_count=0, moved_count=0, baseline_mismatch_count=0)
+        with patch("doors_excel.cli.app.DoorsConnection") as MockConn, \
+             patch("doors_excel.cli.app.stage_import_api", return_value=("sid1", stats)), \
+             patch("doors_excel.cli.app.execute_import_api", return_value=1), \
+             patch("doors_excel.cli.app.KeepAliveWatchdog") as MockWatchdog:
+            MockConn.open.return_value = MagicMock()
+            mock_wd = MagicMock()
+            MockWatchdog.return_value = mock_wd
+            result = runner.invoke(app, ["import", "--file", str(xlsx), "--config", str(cfg)])
+        assert result.exit_code == 0
+        MockWatchdog.assert_called_once()
+        mock_wd.start.assert_called_once()
+        mock_wd.stop.assert_called_once()
