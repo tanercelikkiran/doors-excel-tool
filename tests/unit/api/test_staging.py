@@ -160,3 +160,31 @@ class TestLoadExcelToStaging:
         ).fetchall()
         assert len(rows) == 1
         assert rows[0]["md_hash"] is None
+
+    def test_string_cell_whitespace_is_trimmed(self) -> None:
+        """REQ-FUN-211: leading/trailing whitespace stripped from String cells."""
+        from doors_excel.api.staging import load_excel_to_staging
+
+        conn = _make_conn()
+        ws = _make_worksheet([
+            ["Absolute Number", "Short Name"],
+            [1, "  hello  "],   # leading + trailing space
+        ])
+        conn.execute(
+            "INSERT INTO sessions (session_id, excel_path, doors_module, excel_sha256, module_version)"
+            " VALUES ('sid1', 'f.xlsx', '/p/mod', 'abc', 'current')"
+        )
+        conn.commit()
+
+        mod_cfg = ModuleConfig(
+            module_path="/p/mod",
+            column_mappings=[
+                ColumnMapping(column="Short Name", attribute="Short Name", attribute_type="String"),
+            ],
+        )
+        load_excel_to_staging(ws, conn, "sid1", mod_cfg)
+
+        row = conn.execute(
+            "SELECT value FROM staging_excel WHERE session_id='sid1' AND attribute='Short Name'"
+        ).fetchone()
+        assert row["value"] == "hello"

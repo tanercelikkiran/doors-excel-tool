@@ -47,7 +47,16 @@ def load_excel_to_staging(
             if not header:
                 continue
             value = row[col_idx] if col_idx < len(row) else None
-            str_value = str(value) if value is not None else None
+
+            # Trim whitespace for non-Text, non-None string values
+            if value is not None:
+                str_value = str(value)
+                # Only trim if this is not a Text column (Text columns preserve RTF formatting)
+                if header not in text_cols:
+                    str_value = str_value.strip()
+            else:
+                str_value = None
+
             md_hash = (
                 hash_markdown(str_value)
                 if header in text_cols and str_value is not None
