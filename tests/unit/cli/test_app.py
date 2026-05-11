@@ -365,3 +365,74 @@ class TestImportCommand:
             )
         assert result.exit_code == 1
         mock_wd.stop.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# import — session recovery
+# ---------------------------------------------------------------------------
+
+class TestImportSessionRecovery:
+    def _write_import_xlsx(self, tmp_path: Path) -> Path:
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "mod"
+        ws.append(["Absolute Number", "Object Text", "Short Name"])
+        ws.append([1, "text", "sn"])
+        p = tmp_path / "data.xlsx"
+        wb.save(p)
+        return p
+
+    def test_existing_session_without_flag_exits_one(self, tmp_path: Path) -> None:
+        """Leftover session file aborts unless --resume or --discard-session given."""
+        cfg = _write_valid_config(tmp_path)
+        xlsx = self._write_import_xlsx(tmp_path)
+        # write a fake session sidecar next to the xlsx
+        session_file = xlsx.parent / ".session.json"
+        session_file.write_text('{"session_id": "old", "db_path": "x.db"}', encoding="utf-8")
+        with patch("doors_excel.cli.app.DoorsConnection") as MockConn:
+            MockConn.open.return_value = MagicMock()
+            result = runner.invoke(
+                app,
+                ["import", "--file", str(xlsx), "--config", str(cfg)],
+            )
+        assert result.exit_code == 1
+        assert "resume" in result.output.lower() or "session" in result.output.lower()
+
+    def test_discard_session_flag_removes_file_and_proceeds(self, tmp_path: Path) -> None:
+        from doors_excel.core.diff.summary import DiffSummary
+        cfg = _write_valid_config(tmp_path)
+        xlsx = self._write_import_xlsx(tmp_path)
+        session_file = xlsx.parent / ".session.json"
+        session_file.write_text('{"session_id": "old", "db_path": "x.db"}', encoding="utf-8")
+
+        stats = DiffSummary(new_count=0, deleted_count=0, updated_count=1, conflict_count=0, moved_count=0, baseline_mismatch_count=0)
+        with patch("doors_excel.cli.app.DoorsConnection") as MockConn, \
+             patch("doors_excel.cli.app.stage_import_api", return_value=("sid2", stats)), \
+             patch("doors_excel.cli.app.execute_import_api", return_value=1), \
+             patch("doors_excel.cli.app.KeepAliveWatchdog"):
+            MockConn.open.return_value = MagicMock()
+            result = runner.invoke(
+                app,
+                ["import", "--file", str(xlsx), "--config", str(cfg), "--discard-session"],
+            )
+        assert result.exit_code == 0
+        assert not session_file.exists()
+
+    def test_resume_flag_proceeds_without_deleting_session(self, tmp_path: Path) -> None:
+        from doors_excel.core.diff.summary import DiffSummary
+        cfg = _write_valid_config(tmp_path)
+        xlsx = self._write_import_xlsx(tmp_path)
+        session_file = xlsx.parent / ".session.json"
+        session_file.write_text('{"session_id": "old", "db_path": "x.db"}', encoding="utf-8")
+
+        stats = DiffSummary(new_count=0, deleted_count=0, updated_count=1, conflict_count=0, moved_count=0, baseline_mismatch_count=0)
+        with patch("doors_excel.cli.app.DoorsConnection") as MockConn, \
+             patch("doors_excel.cli.app.stage_import_api", return_value=("sid2", stats)), \
+             patch("doors_excel.cli.app.execute_import_api", return_value=1), \
+             patch("doors_excel.cli.app.KeepAliveWatchdog"):
+            MockConn.open.return_value = MagicMock()
+            result = runner.invoke(
+                app,
+                ["import", "--file", str(xlsx), "--config", str(cfg), "--resume"],
+            )
+        assert result.exit_code == 0

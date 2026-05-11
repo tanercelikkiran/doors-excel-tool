@@ -205,6 +205,14 @@ def import_mod(
         bool,
         typer.Option("--quiet", "-q", help="Suppress non-error output."),
     ] = False,
+    resume: Annotated[
+        bool,
+        typer.Option("--resume", help="Resume an interrupted import using the existing session file."),
+    ] = False,
+    discard_session: Annotated[
+        bool,
+        typer.Option("--discard-session", help="Discard any leftover session file and start fresh."),
+    ] = False,
 ) -> None:
     """Import an Excel file into DOORS."""
     if config is None:
@@ -223,6 +231,20 @@ def import_mod(
     if mod_cfg is None:
         print_error("No module configuration found.")
         raise typer.Exit(1)
+
+    from doors_excel.api.sessions import session_file_path
+
+    sf = session_file_path(file)
+    if sf.exists():
+        if discard_session:
+            sf.unlink()
+        elif not resume:
+            print_error(
+                f"A previous session file exists at {sf}. "
+                "Use --resume to continue it or --discard-session to start fresh."
+            )
+            raise typer.Exit(1)
+        # If --resume: fall through and re-stage with the existing DB context
 
     try:
         conn = DoorsConnection.open()
