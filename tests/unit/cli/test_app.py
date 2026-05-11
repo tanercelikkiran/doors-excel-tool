@@ -216,11 +216,11 @@ class TestImportCommand:
         return p
 
     def test_import_succeeds_with_mocked_api(self, tmp_path: Path) -> None:
-        from doors_excel.core.diff.engine import DiffStats
+        from doors_excel.core.diff.summary import DiffSummary
 
         cfg = _write_valid_config(tmp_path)
         xlsx = self._write_import_xlsx(tmp_path)
-        stats = DiffStats(new_count=0, deleted_count=0, updated_count=1, conflict_count=0, moved_count=0)
+        stats = DiffSummary(new_count=0, deleted_count=0, updated_count=1, conflict_count=0, moved_count=0, baseline_mismatch_count=0)
         with patch("doors_excel.cli.app.DoorsConnection") as MockConn, \
              patch("doors_excel.cli.app.stage_import_api", return_value=("sid1", stats)), \
              patch("doors_excel.cli.app.execute_import_api", return_value=1):
@@ -232,11 +232,11 @@ class TestImportCommand:
         assert result.exit_code == 0
 
     def test_import_exits_one_when_conflicts_present_and_doors_wins_policy(self, tmp_path: Path) -> None:
-        from doors_excel.core.diff.engine import DiffStats
+        from doors_excel.core.diff.summary import DiffSummary
 
         cfg = _write_valid_config(tmp_path)
         xlsx = self._write_import_xlsx(tmp_path)
-        stats = DiffStats(new_count=0, deleted_count=0, updated_count=0, conflict_count=2, moved_count=0)
+        stats = DiffSummary(new_count=0, deleted_count=0, updated_count=0, conflict_count=2, moved_count=0, baseline_mismatch_count=0)
         with patch("doors_excel.cli.app.DoorsConnection") as MockConn, \
              patch("doors_excel.cli.app.stage_import_api", return_value=("sid1", stats)), \
              patch("doors_excel.cli.app.execute_import_api", return_value=0):
@@ -256,11 +256,11 @@ class TestImportCommand:
         assert result.exit_code == 1
 
     def test_import_quiet_suppresses_success_message(self, tmp_path: Path) -> None:
-        from doors_excel.core.diff.engine import DiffStats
+        from doors_excel.core.diff.summary import DiffSummary
 
         cfg = _write_valid_config(tmp_path)
         xlsx = self._write_import_xlsx(tmp_path)
-        stats = DiffStats(new_count=0, deleted_count=0, updated_count=1, conflict_count=0, moved_count=0)
+        stats = DiffSummary(new_count=0, deleted_count=0, updated_count=1, conflict_count=0, moved_count=0, baseline_mismatch_count=0)
         with patch("doors_excel.cli.app.DoorsConnection") as MockConn, \
              patch("doors_excel.cli.app.stage_import_api", return_value=("sid1", stats)), \
              patch("doors_excel.cli.app.execute_import_api", return_value=1):
@@ -273,11 +273,11 @@ class TestImportCommand:
         assert "Applied" not in result.output
 
     def test_purge_without_force_exits_one(self, tmp_path: Path) -> None:
-        from doors_excel.core.diff.engine import DiffStats
+        from doors_excel.core.diff.summary import DiffSummary
 
         cfg = _write_valid_config(tmp_path)
         xlsx = self._write_import_xlsx(tmp_path)
-        stats = DiffStats(new_count=0, deleted_count=1, updated_count=0, conflict_count=0, moved_count=0)
+        stats = DiffSummary(new_count=0, deleted_count=1, updated_count=0, conflict_count=0, moved_count=0, baseline_mismatch_count=0)
         with patch("doors_excel.cli.app.DoorsConnection") as MockConn, \
              patch("doors_excel.cli.app.stage_import_api", return_value=("sid1", stats)), \
              patch("doors_excel.cli.app.execute_import_api", return_value=0):

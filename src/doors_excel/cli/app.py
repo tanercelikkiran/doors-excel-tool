@@ -19,7 +19,7 @@ from doors_excel.api.sessions import SessionManager
 from doors_excel.api.import_ import execute_import as execute_import_api
 from doors_excel.api.import_ import stage_import as stage_import_api
 from doors_excel.api.rollback import generate_rollback_excel as generate_rollback_excel_api
-from doors_excel.cli.output import console, print_error, print_validation_result
+from doors_excel.cli.output import console, print_error, print_validation_result, print_diff_summary
 from doors_excel.common.exceptions import ConfigurationError, DoorsExcelError
 from doors_excel.infrastructure.doors.connection import DoorsConnection
 
@@ -242,12 +242,7 @@ def import_mod(
         raise typer.Exit(1) from exc
 
     if not quiet:
-        console.print(
-            f"Diff: [yellow]{stats.updated_count}[/] updated, "
-            f"[red]{stats.conflict_count}[/] conflicts, "
-            f"[green]{stats.new_count}[/] new, "
-            f"[red]{stats.deleted_count}[/] deleted"
-        )
+        print_diff_summary(stats, quiet=quiet)
 
     if deletion_policy == "purge" and not force:
         print_error("--deletion-policy purge requires --force flag.")

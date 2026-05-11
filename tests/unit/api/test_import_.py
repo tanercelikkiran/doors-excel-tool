@@ -116,6 +116,33 @@ class TestStageImport:
         conn.close()
         assert len(rows) > 0
 
+    def test_stage_import_returns_diffsummary(self, tmp_path: Path) -> None:
+        """stage_import must return DiffSummary (not DiffStats) — REQ-FUN-208."""
+        from doors_excel.core.diff.summary import DiffSummary
+        from doors_excel.api.import_ import stage_import
+
+        xlsx = _write_xlsx(tmp_path, [
+            ["Absolute Number", "Object Text"],
+            [1, "text"],
+        ])
+        doors_rows = [
+            {
+                "object_id": 1, "level": 1, "parent_id": None, "has_ole": 0,
+                "object_type": "OBJECT", "attribute": "Object Text",
+                "value": "original", "rtf_value": "", "md_hash": None,
+            }
+        ]
+        with patch("doors_excel.api.import_.DoorsExporter.export_module", return_value=doors_rows):
+            session_id, summary = stage_import(
+                xlsx,
+                _make_module_config(),
+                db_path=tmp_path / "test.db",
+                doors_conn=object(),
+            )
+
+        assert isinstance(summary, DiffSummary), f"Expected DiffSummary, got {type(summary)}"
+        assert hasattr(summary, "baseline_mismatch_count")
+
 
 class TestExecuteImport:
     def _make_conn(self, tmp_path: Path) -> sqlite3.Connection:

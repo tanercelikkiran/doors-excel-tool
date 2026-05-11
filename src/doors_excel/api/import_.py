@@ -6,9 +6,10 @@ from pathlib import Path
 
 from doors_excel.api.sessions import SessionManager
 from doors_excel.api.staging import load_excel_to_staging
+from doors_excel.api.diff import run_diff
 from doors_excel.common.types import ConflictPolicy
 from doors_excel.core.diff.conflict import apply_conflict_policy as _apply_policy
-from doors_excel.core.diff.engine import DiffStats, compute_diff
+from doors_excel.core.diff.summary import DiffSummary
 from doors_excel.core.transformation.hashing import hash_markdown as _hash_md
 from doors_excel.core.transformation.markdown_to_rtf import markdown_to_rtf
 from doors_excel.core.transformation.rtf_to_markdown import rtf_to_markdown
@@ -30,10 +31,10 @@ def stage_import(
     doors_conn: object,
     baseline: str = "current",
     trim_whitespace: bool = True,
-) -> tuple[str, DiffStats]:
+) -> tuple[str, DiffSummary]:
     """Stage an Excel import: load Excel + DOORS data into SQLite, compute diff.
 
-    Returns ``(session_id, DiffStats)``.
+    Returns ``(session_id, DiffSummary)``.
     """
     from doors_excel.api.validate import _pick_worksheet
 
@@ -81,11 +82,11 @@ def stage_import(
             ]
         )
 
-        stats = compute_diff(conn, sid)
+        summary = run_diff(conn, sid)
     finally:
         mgr.close()
 
-    return sid, stats
+    return sid, summary
 
 
 def execute_import(
