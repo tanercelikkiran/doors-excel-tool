@@ -502,3 +502,51 @@ def test_execute_import_excludes_parent_id_from_updates():
         updates = call.args[1] if len(call.args) > 1 else call.kwargs.get("updates", [])
         for u in updates:
             assert u.get("attribute") != "_Parent_ID", "_Parent_ID must not go through apply_updates"
+
+
+def test_execute_import_calls_move_objects_for_moved_rows():
+    """execute_import must call DoorsImporter.move_objects for MOVED rows."""
+    import sqlite3
+    from unittest.mock import MagicMock, patch
+    from doors_excel.api.import_ import execute_import
+    from doors_excel.infrastructure.database.schema import apply_schema
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    apply_schema(conn)
+
+    conn.execute(
+        "INSERT INTO sessions(session_id, excel_path, doors_module, excel_sha256, module_version, status, created_at)"
+        " VALUES ('s1','/f.xlsx','/m','abc','current','active', datetime('now'))"
+    )
+    # MOVED diff row for object 10
+    conn.execute(
+        "INSERT INTO diff_results(session_id, object_id, attribute, change_type, excel_value, doors_value)"
+        " VALUES ('s1', 10, '_Parent_ID', 'MOVED', '5', '3')"
+    )
+    # Corresponding staging_excel entries for new parent and placement
+    conn.execute(
+        "INSERT INTO staging_excel(session_id, object_id, attribute, value, row_number)"
+        " VALUES ('s1', 10, '_Parent_ID', '5', 1)"
+    )
+    conn.execute(
+        "INSERT INTO staging_excel(session_id, object_id, attribute, value, row_number)"
+        " VALUES ('s1', 10, '_Placement', 'below', 1)"
+    )
+    conn.commit()
+
+    mock_doors = MagicMock()
+    with patch("doors_excel.api.import_.DoorsImporter") as MockImporter:
+        mock_imp = MagicMock()
+        MockImporter.return_value = mock_imp
+        applied = execute_import("s1", conn, doors_conn=mock_doors)
+
+    mock_imp.move_objects.assert_called_once()
+    call_args = mock_imp.move_objects.call_args
+    mod_path_arg = call_args.args[0] if call_args.args else call_args.kwargs.get("module_path")
+    moves_arg = call_args.args[1] if len(call_args.args) > 1 else call_args.kwargs.get("moves")
+    assert mod_path_arg == "/m"
+    assert len(moves_arg) == 1
+    assert moves_arg[0]["object_id"] == 10
+    assert moves_arg[0]["new_parent_id"] == 5
+    assert applied == 1

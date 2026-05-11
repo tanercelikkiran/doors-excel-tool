@@ -144,7 +144,8 @@ def execute_import(
         WHERE dr.session_id = :sid
           AND (
               (dr.change_type = 'UPDATED' AND dr.attribute != '_Parent_ID')
-              OR (dr.change_type = 'CONFLICT' AND dr.resolved_value IS NOT NULL)
+              OR (dr.change_type = 'CONFLICT' AND dr.resolved_value IS NOT NULL
+                  AND dr.attribute != '_Parent_ID')
           )
         """,
         {"sid": session_id},
