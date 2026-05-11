@@ -385,6 +385,28 @@ class TestImportCommand:
         call_kwargs = mock_exec.call_args.kwargs
         assert call_kwargs.get("accept_ole_overwrites") is True
 
+    def test_purge_with_children_prints_warning(self, tmp_path: Path) -> None:
+        """When purging objects that have children in DOORS, user sees a warning count."""
+        from doors_excel.core.diff.summary import DiffSummary
+
+        cfg = _write_valid_config(tmp_path)
+        xlsx = self._write_import_xlsx(tmp_path)
+        stats = DiffSummary(new_count=0, deleted_count=3, updated_count=0, conflict_count=0, moved_count=0, baseline_mismatch_count=0)
+        with patch("doors_excel.cli.app.DoorsConnection") as MockConn, \
+             patch("doors_excel.cli.app.stage_import_api", return_value=("sid1", stats)), \
+             patch("doors_excel.cli.app.execute_import_api", return_value=3), \
+             patch("doors_excel.cli.app.KeepAliveWatchdog"), \
+             patch("doors_excel.cli.app._count_children_in_doors", return_value=12):
+            MockConn.open.return_value = MagicMock()
+            result = runner.invoke(
+                app,
+                ["import", "--file", str(xlsx), "--config", str(cfg),
+                 "--deletion-policy", "purge", "--force"],
+            )
+        assert result.exit_code == 0
+        assert "12" in result.output
+        assert "cascade" in result.output.lower() or "children" in result.output.lower()
+
 
 # ---------------------------------------------------------------------------
 # import — session recovery

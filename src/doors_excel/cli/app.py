@@ -36,6 +36,38 @@ app = typer.Typer(
 )
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _count_children_in_doors(
+    conn: object, module_path: str, db_conn: _sqlite3.Connection, session_id: str
+) -> int:
+    """Estimate cascading deletes by counting staging_doors rows whose parent_id is being deleted.
+
+    Returns 0 on any failure (non-fatal — warning is best-effort).
+    """
+    try:
+        deleted_rows = db_conn.execute(
+            "SELECT DISTINCT object_id FROM diff_results WHERE session_id = ? AND change_type = 'DELETED'",
+            (session_id,),
+        ).fetchall()
+        object_ids = [r["object_id"] for r in deleted_rows if r["object_id"] is not None]
+        if not object_ids:
+            return 0
+
+        placeholders = ",".join("?" * len(object_ids))
+        child_rows = db_conn.execute(
+            f"SELECT COUNT(DISTINCT object_id) as cnt FROM staging_doors "
+            f"WHERE session_id = ? AND parent_id IN ({placeholders})",
+            [session_id] + object_ids,
+        ).fetchone()
+        return child_rows["cnt"] if child_rows else 0
+    except Exception:
+        return 0
+
+
+# ---------------------------------------------------------------------------
 # validate
 # ---------------------------------------------------------------------------
 
@@ -332,6 +364,15 @@ def import_mod(
     db_conn = _sqlite3.connect(str(db_path))
     db_conn.row_factory = _sqlite3.Row
     _apply_schema(db_conn)
+
+    # Show cascading delete warning before purge
+    if deletion_policy == "purge" and stats.deleted_count > 0 and not quiet:
+        _child_count = _count_children_in_doors(conn, mod_cfg.module_path, db_conn, session_id)
+        if _child_count > 0:
+            console.print(
+                f"[bold yellow]Warning:[/] Purging {stats.deleted_count} object(s) will cascade-delete "
+                f"[bold]{_child_count}[/] children."
+            )
 
     watchdog = KeepAliveWatchdog(conn.run_dxl)
     watchdog.start()
