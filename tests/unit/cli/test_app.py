@@ -418,12 +418,58 @@ class TestImportSessionRecovery:
         assert result.exit_code == 0
         assert not session_file.exists()
 
-    def test_resume_flag_proceeds_without_deleting_session(self, tmp_path: Path) -> None:
+    def test_resume_validates_session_and_exits_zero(self, tmp_path: Path) -> None:
+        """--resume validates the session via SessionManager.resume() and exits 0."""
+        from doors_excel.core.diff.summary import DiffSummary
+        from doors_excel.api.sessions import SessionInfo
+
+        cfg = _write_valid_config(tmp_path)
+        xlsx = self._write_import_xlsx(tmp_path)
+        session_file = xlsx.parent / ".session.json"
+        session_file.write_text('{"session_id": "old", "db_path": "x.db"}', encoding="utf-8")
+
+        fake_info = SessionInfo(
+            session_id="old",
+            excel_path=xlsx,
+            doors_module="/proj/mod",
+            excel_sha256="abc",
+            module_version="current",
+            db_path=tmp_path / "x.db",
+        )
+        fake_stats = DiffSummary(new_count=0, deleted_count=0, updated_count=1, conflict_count=0, moved_count=0, baseline_mismatch_count=0)
+
+        with patch("doors_excel.cli.app.DoorsConnection") as MockConn, \
+             patch("doors_excel.cli.app._SessionMgr") as MockMgr, \
+             patch("doors_excel.cli.app._run_diff_api", return_value=fake_stats):
+            MockConn.open.return_value = MagicMock()
+            mock_mgr_instance = MagicMock()
+            MockMgr.return_value = mock_mgr_instance
+            mock_mgr_instance.resume.return_value = fake_info
+            result = runner.invoke(
+                app,
+                ["import", "--file", str(xlsx), "--config", str(cfg), "--resume"],
+            )
+        assert result.exit_code == 0
+        mock_mgr_instance.resume.assert_called_once()
+
+    def test_resume_and_discard_session_together_exits_one(self, tmp_path: Path) -> None:
+        cfg = _write_valid_config(tmp_path)
+        xlsx = self._write_import_xlsx(tmp_path)
+        result = runner.invoke(
+            app,
+            ["import", "--file", str(xlsx), "--config", str(cfg),
+             "--resume", "--discard-session"],
+        )
+        assert result.exit_code == 1
+
+    def test_discard_session_removes_db_too(self, tmp_path: Path) -> None:
         from doors_excel.core.diff.summary import DiffSummary
         cfg = _write_valid_config(tmp_path)
         xlsx = self._write_import_xlsx(tmp_path)
         session_file = xlsx.parent / ".session.json"
         session_file.write_text('{"session_id": "old", "db_path": "x.db"}', encoding="utf-8")
+        db_file = xlsx.parent / (xlsx.stem + ".db")
+        db_file.write_text("fake db", encoding="utf-8")
 
         stats = DiffSummary(new_count=0, deleted_count=0, updated_count=1, conflict_count=0, moved_count=0, baseline_mismatch_count=0)
         with patch("doors_excel.cli.app.DoorsConnection") as MockConn, \
@@ -433,6 +479,10 @@ class TestImportSessionRecovery:
             MockConn.open.return_value = MagicMock()
             result = runner.invoke(
                 app,
-                ["import", "--file", str(xlsx), "--config", str(cfg), "--resume"],
+                ["import", "--file", str(xlsx), "--config", str(cfg), "--discard-session"],
             )
         assert result.exit_code == 0
+        assert not session_file.exists()
+        # The old fake-content DB was deleted; the import created a new valid SQLite DB in its place
+        assert db_file.exists()
+        assert db_file.read_text(encoding="utf-8", errors="replace") != "fake db"

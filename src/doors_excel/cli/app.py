@@ -14,13 +14,15 @@ from typing import Annotated, Optional
 
 import typer
 
+from doors_excel.api.diff import run_diff as _run_diff_api
 from doors_excel.api.export import export_module as export_module_api
-from doors_excel.api.sessions import SessionManager
+from doors_excel.api.sessions import SessionManager, session_file_path
+from doors_excel.api.sessions import SessionManager as _SessionMgr
 from doors_excel.api.import_ import execute_import as execute_import_api
 from doors_excel.api.import_ import stage_import as stage_import_api
 from doors_excel.api.rollback import generate_rollback_excel as generate_rollback_excel_api
 from doors_excel.cli.output import console, print_error, print_validation_result, print_diff_summary
-from doors_excel.common.exceptions import ConfigurationError, DoorsExcelError
+from doors_excel.common.exceptions import ConfigurationError, DoorsExcelError, SessionError
 from doors_excel.infrastructure.doors.connection import DoorsConnection
 from doors_excel.infrastructure.doors.keepalive import KeepAliveWatchdog
 
@@ -232,19 +234,53 @@ def import_mod(
         print_error("No module configuration found.")
         raise typer.Exit(1)
 
-    from doors_excel.api.sessions import session_file_path
-
     sf = session_file_path(file)
+
+    if resume and discard_session:
+        print_error("--resume and --discard-session are mutually exclusive.")
+        raise typer.Exit(1)
+
     if sf.exists():
         if discard_session:
-            sf.unlink()
-        elif not resume:
+            sf.unlink(missing_ok=True)
+            # Also remove the companion DB to start truly fresh
+            _db_for_discard = file.parent / (file.stem + ".db")
+            if _db_for_discard.exists():
+                _db_for_discard.unlink()
+        elif resume:
+            # Validate the existing session (checks SHA-256 of Excel file)
+            try:
+                _resume_info = _SessionMgr(file.parent / (file.stem + ".db")).resume(sf)
+            except SessionError as exc:
+                print_error(f"Cannot resume session: {exc}")
+                raise typer.Exit(1) from exc
+            # Fast path: skip staging, use existing diff in the DB
+            _resume_db_path = _resume_info.db_path
+            _resume_session_id = _resume_info.session_id
+            # Re-open DB and compute stats from existing diff
+            import sqlite3 as _sqlite3
+            from doors_excel.infrastructure.database.schema import apply_schema as _apply_schema
+
+            _rconn = _sqlite3.connect(str(_resume_db_path))
+            _rconn.row_factory = _sqlite3.Row
+            _apply_schema(_rconn)
+            try:
+                _rstats = _run_diff_api(_rconn, _resume_session_id)
+            finally:
+                _rconn.close()
+
+            print_diff_summary(_rstats, quiet=quiet)
+            if not quiet:
+                console.print("[dim]Resuming existing session. Use --yes to apply.[/]")
+
+            # For now resume exits here (full execute-on-resume is a future task)
+            raise typer.Exit(0)
+        else:
             print_error(
                 f"A previous session file exists at {sf}. "
                 "Use --resume to continue it or --discard-session to start fresh."
             )
             raise typer.Exit(1)
-        # If --resume: fall through and re-stage with the existing DB context
 
     try:
         conn = DoorsConnection.open()
