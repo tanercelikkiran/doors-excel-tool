@@ -396,7 +396,7 @@ class TestImportCommand:
              patch("doors_excel.cli.app.stage_import_api", return_value=("sid1", stats)), \
              patch("doors_excel.cli.app.execute_import_api", return_value=3), \
              patch("doors_excel.cli.app.KeepAliveWatchdog"), \
-             patch("doors_excel.cli.app._count_children_in_doors", return_value=12):
+             patch("doors_excel.cli.app._count_staged_children", return_value=12):
             MockConn.open.return_value = MagicMock()
             result = runner.invoke(
                 app,

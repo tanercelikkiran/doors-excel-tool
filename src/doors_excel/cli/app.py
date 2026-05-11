@@ -40,9 +40,7 @@ app = typer.Typer(
 # ---------------------------------------------------------------------------
 
 
-def _count_children_in_doors(
-    conn: object, module_path: str, db_conn: _sqlite3.Connection, session_id: str
-) -> int:
+def _count_staged_children(db_conn: _sqlite3.Connection, session_id: str) -> int:
     """Estimate cascading deletes by counting staging_doors rows whose parent_id is being deleted.
 
     Returns 0 on any failure (non-fatal — warning is best-effort).
@@ -367,7 +365,7 @@ def import_mod(
 
     # Show cascading delete warning before purge
     if deletion_policy == "purge" and stats.deleted_count > 0 and not quiet:
-        _child_count = _count_children_in_doors(conn, mod_cfg.module_path, db_conn, session_id)
+        _child_count = _count_staged_children(db_conn, session_id)
         if _child_count > 0:
             console.print(
                 f"[bold yellow]Warning:[/] Purging {stats.deleted_count} object(s) will cascade-delete "
