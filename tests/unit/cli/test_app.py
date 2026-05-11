@@ -451,6 +451,7 @@ class TestImportSessionRecovery:
             )
         assert result.exit_code == 0
         mock_mgr_instance.resume.assert_called_once()
+        MockConn.open.assert_not_called()
 
     def test_resume_and_discard_session_together_exits_one(self, tmp_path: Path) -> None:
         cfg = _write_valid_config(tmp_path)

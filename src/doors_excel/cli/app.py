@@ -9,6 +9,9 @@ rollback    Generate a rollback Excel from a session snapshot (fully implemented
 """
 from __future__ import annotations
 
+from __future__ import annotations
+
+import sqlite3 as _sqlite3
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -16,13 +19,13 @@ import typer
 
 from doors_excel.api.diff import run_diff as _run_diff_api
 from doors_excel.api.export import export_module as export_module_api
-from doors_excel.api.sessions import SessionManager, session_file_path
-from doors_excel.api.sessions import SessionManager as _SessionMgr
 from doors_excel.api.import_ import execute_import as execute_import_api
 from doors_excel.api.import_ import stage_import as stage_import_api
 from doors_excel.api.rollback import generate_rollback_excel as generate_rollback_excel_api
+from doors_excel.api.sessions import SessionManager as _SessionMgr, session_file_path
 from doors_excel.cli.output import console, print_error, print_validation_result, print_diff_summary
 from doors_excel.common.exceptions import ConfigurationError, DoorsExcelError, SessionError
+from doors_excel.infrastructure.database.schema import apply_schema as _apply_schema
 from doors_excel.infrastructure.doors.connection import DoorsConnection
 from doors_excel.infrastructure.doors.keepalive import KeepAliveWatchdog
 
@@ -152,7 +155,7 @@ def export(
         raise typer.Exit(1) from exc
 
     db_path = out_path.with_suffix(".db")
-    session_mgr = SessionManager(db_path)
+    session_mgr = _SessionMgr(db_path)
     watchdog = KeepAliveWatchdog(conn.run_dxl)
     watchdog.start()
     try:
@@ -240,26 +243,30 @@ def import_mod(
         print_error("--resume and --discard-session are mutually exclusive.")
         raise typer.Exit(1)
 
+    if resume and not sf.exists():
+        print_error(f"No session file found at {sf}. Cannot resume.")
+        raise typer.Exit(1)
+
     if sf.exists():
         if discard_session:
             sf.unlink(missing_ok=True)
             # Also remove the companion DB to start truly fresh
             _db_for_discard = file.parent / (file.stem + ".db")
-            if _db_for_discard.exists():
-                _db_for_discard.unlink()
+            _db_for_discard.unlink(missing_ok=True)
         elif resume:
             # Validate the existing session (checks SHA-256 of Excel file)
+            _mgr = _SessionMgr(file.parent / (file.stem + ".db"))
             try:
-                _resume_info = _SessionMgr(file.parent / (file.stem + ".db")).resume(sf)
+                _resume_info = _mgr.resume(sf)
             except SessionError as exc:
                 print_error(f"Cannot resume session: {exc}")
                 raise typer.Exit(1) from exc
+            finally:
+                _mgr.close()
             # Fast path: skip staging, use existing diff in the DB
             _resume_db_path = _resume_info.db_path
             _resume_session_id = _resume_info.session_id
             # Re-open DB and compute stats from existing diff
-            import sqlite3 as _sqlite3
-            from doors_excel.infrastructure.database.schema import apply_schema as _apply_schema
 
             _rconn = _sqlite3.connect(str(_resume_db_path))
             _rconn.row_factory = _sqlite3.Row
@@ -271,7 +278,7 @@ def import_mod(
 
             print_diff_summary(_rstats, quiet=quiet)
             if not quiet:
-                console.print("[dim]Resuming existing session. Use --yes to apply.[/]")
+                console.print("[dim]Resuming session validated. Re-run without --resume to apply changes.[/]")
 
             # For now resume exits here (full execute-on-resume is a future task)
             raise typer.Exit(0)
@@ -317,9 +324,6 @@ def import_mod(
         )
         conn.close()
         raise typer.Exit(1)
-
-    import sqlite3 as _sqlite3
-    from doors_excel.infrastructure.database.schema import apply_schema as _apply_schema
 
     db_conn = _sqlite3.connect(str(db_path))
     db_conn.row_factory = _sqlite3.Row
