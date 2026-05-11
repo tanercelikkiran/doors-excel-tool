@@ -4,6 +4,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+from loguru import logger
+
 from doors_excel.api.sessions import SessionManager
 from doors_excel.api.staging import load_excel_to_staging
 from doors_excel.api.diff import run_diff
@@ -165,6 +167,11 @@ def execute_import(
             ole_ids = {r["object_id"] for r in ole_rows}
             if ole_ids:
                 rows = [r for r in rows if r["object_id"] not in ole_ids]
+                logger.warning(
+                    "Skipped {} object(s) with embedded OLE content. "
+                    "Use --accept-ole-overwrites to allow updates.",
+                    len(ole_ids),
+                )
 
     # Resolve module path (param → rows[0] → sessions lookup)
     if module_path is not None:

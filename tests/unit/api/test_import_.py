@@ -624,4 +624,3 @@ def test_execute_import_applies_ole_objects_when_accepted():
 
     assert applied == 1
     mock_imp.apply_updates.assert_called_once()
-    assert applied == 1
