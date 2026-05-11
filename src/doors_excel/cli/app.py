@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from __future__ import annotations
 
+import json
 import sqlite3 as _sqlite3
 from pathlib import Path
 from typing import Annotated, Optional
@@ -252,6 +253,14 @@ def import_mod(
         bool,
         typer.Option("--discard-session", help="Discard any leftover session file and start fresh."),
     ] = False,
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", "-y", help="Apply changes to DOORS (without this flag, only a diff preview is shown)."),
+    ] = False,
+    json_report: Annotated[
+        Optional[Path],
+        typer.Option("--json-report", help="Write diff summary as JSON to this path."),
+    ] = None,
 ) -> None:
     """Import an Excel file into DOORS."""
     if config is None:
@@ -346,6 +355,11 @@ def import_mod(
 
     print_diff_summary(stats, quiet=quiet)
 
+    if json_report is not None:
+        import dataclasses
+        with json_report.open("w", encoding="utf-8") as _jf:
+            json.dump(dataclasses.asdict(stats), _jf, indent=2)
+
     if deletion_policy == "purge" and not force:
         print_error("--deletion-policy purge requires --force flag.")
         conn.close()
@@ -371,6 +385,13 @@ def import_mod(
                 f"[bold yellow]Warning:[/] Purging {stats.deleted_count} object(s) will cascade-delete "
                 f"[bold]{_child_count}[/] children."
             )
+
+    if not yes:
+        if not quiet:
+            console.print("[dim]Dry-run complete. Use --yes to apply changes.[/]")
+        db_conn.close()
+        conn.close()
+        raise typer.Exit(0)
 
     watchdog = KeepAliveWatchdog(conn.run_dxl)
     watchdog.start()

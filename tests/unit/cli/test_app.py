@@ -262,7 +262,7 @@ class TestImportCommand:
             MockConn.open.return_value = MagicMock()
             result = runner.invoke(
                 app,
-                ["import", "--file", str(xlsx), "--config", str(cfg)],
+                ["import", "--file", str(xlsx), "--config", str(cfg), "--yes"],
             )
         assert result.exit_code == 0
 
@@ -278,7 +278,7 @@ class TestImportCommand:
             MockConn.open.return_value = MagicMock()
             result = runner.invoke(
                 app,
-                ["import", "--file", str(xlsx), "--config", str(cfg), "--policy", "doors-wins"],
+                ["import", "--file", str(xlsx), "--config", str(cfg), "--policy", "doors-wins", "--yes"],
             )
         assert result.exit_code == 1
 
@@ -302,7 +302,7 @@ class TestImportCommand:
             MockConn.open.return_value = MagicMock()
             result = runner.invoke(
                 app,
-                ["import", "--file", str(xlsx), "--config", str(cfg), "--quiet"],
+                ["import", "--file", str(xlsx), "--config", str(cfg), "--quiet", "--yes"],
             )
         assert result.exit_code == 0
         assert "Applied" not in result.output
@@ -320,7 +320,7 @@ class TestImportCommand:
             result = runner.invoke(
                 app,
                 ["import", "--file", str(xlsx), "--config", str(cfg),
-                 "--deletion-policy", "purge"],
+                 "--deletion-policy", "purge", "--yes"],
             )
         assert result.exit_code == 1
         assert "force" in result.output.lower()
@@ -338,7 +338,7 @@ class TestImportCommand:
             MockConn.open.return_value = MagicMock()
             mock_wd = MagicMock()
             MockWatchdog.return_value = mock_wd
-            result = runner.invoke(app, ["import", "--file", str(xlsx), "--config", str(cfg)])
+            result = runner.invoke(app, ["import", "--file", str(xlsx), "--config", str(cfg), "--yes"])
         assert result.exit_code == 0
         MockWatchdog.assert_called_once()
         mock_wd.start.assert_called_once()
@@ -361,7 +361,7 @@ class TestImportCommand:
             MockWatchdog.return_value = mock_wd
             result = runner.invoke(
                 app,
-                ["import", "--file", str(xlsx), "--config", str(cfg)],
+                ["import", "--file", str(xlsx), "--config", str(cfg), "--yes"],
             )
         assert result.exit_code == 1
         mock_wd.stop.assert_called_once()
@@ -379,7 +379,7 @@ class TestImportCommand:
             MockConn.open.return_value = MagicMock()
             result = runner.invoke(
                 app,
-                ["import", "--file", str(xlsx), "--config", str(cfg), "--accept-ole-overwrites"],
+                ["import", "--file", str(xlsx), "--config", str(cfg), "--accept-ole-overwrites", "--yes"],
             )
         assert result.exit_code == 0
         call_kwargs = mock_exec.call_args.kwargs
@@ -401,11 +401,74 @@ class TestImportCommand:
             result = runner.invoke(
                 app,
                 ["import", "--file", str(xlsx), "--config", str(cfg),
-                 "--deletion-policy", "purge", "--force"],
+                 "--deletion-policy", "purge", "--force", "--yes"],
             )
         assert result.exit_code == 0
         assert "12" in result.output
         assert "cascade" in result.output.lower() or "children" in result.output.lower()
+
+    def test_import_without_yes_is_dry_run(self, tmp_path: Path) -> None:
+        """Without --yes, import prints diff and exits 0 without calling execute_import."""
+        from doors_excel.core.diff.summary import DiffSummary
+
+        cfg = _write_valid_config(tmp_path)
+        xlsx = self._write_import_xlsx(tmp_path)
+        stats = DiffSummary(new_count=0, deleted_count=0, updated_count=2, conflict_count=0, moved_count=0, baseline_mismatch_count=0)
+        with patch("doors_excel.cli.app.DoorsConnection") as MockConn, \
+             patch("doors_excel.cli.app.stage_import_api", return_value=("sid1", stats)), \
+             patch("doors_excel.cli.app.execute_import_api") as mock_exec, \
+             patch("doors_excel.cli.app.KeepAliveWatchdog"):
+            MockConn.open.return_value = MagicMock()
+            result = runner.invoke(
+                app,
+                ["import", "--file", str(xlsx), "--config", str(cfg)],
+            )
+        assert result.exit_code == 0
+        mock_exec.assert_not_called()
+
+    def test_import_with_yes_executes(self, tmp_path: Path) -> None:
+        """With --yes, import actually calls execute_import."""
+        from doors_excel.core.diff.summary import DiffSummary
+
+        cfg = _write_valid_config(tmp_path)
+        xlsx = self._write_import_xlsx(tmp_path)
+        stats = DiffSummary(new_count=0, deleted_count=0, updated_count=1, conflict_count=0, moved_count=0, baseline_mismatch_count=0)
+        with patch("doors_excel.cli.app.DoorsConnection") as MockConn, \
+             patch("doors_excel.cli.app.stage_import_api", return_value=("sid1", stats)), \
+             patch("doors_excel.cli.app.execute_import_api", return_value=1) as mock_exec, \
+             patch("doors_excel.cli.app.KeepAliveWatchdog"):
+            MockConn.open.return_value = MagicMock()
+            result = runner.invoke(
+                app,
+                ["import", "--file", str(xlsx), "--config", str(cfg), "--yes"],
+            )
+        assert result.exit_code == 0
+        mock_exec.assert_called_once()
+
+    def test_import_json_report_written(self, tmp_path: Path) -> None:
+        """--json-report writes a machine-readable diff summary file."""
+        import json as _json
+        from doors_excel.core.diff.summary import DiffSummary
+
+        cfg = _write_valid_config(tmp_path)
+        xlsx = self._write_import_xlsx(tmp_path)
+        report_path = tmp_path / "report.json"
+        stats = DiffSummary(new_count=1, deleted_count=0, updated_count=2, conflict_count=0, moved_count=0, baseline_mismatch_count=0)
+        with patch("doors_excel.cli.app.DoorsConnection") as MockConn, \
+             patch("doors_excel.cli.app.stage_import_api", return_value=("sid1", stats)), \
+             patch("doors_excel.cli.app.execute_import_api", return_value=3), \
+             patch("doors_excel.cli.app.KeepAliveWatchdog"):
+            MockConn.open.return_value = MagicMock()
+            result = runner.invoke(
+                app,
+                ["import", "--file", str(xlsx), "--config", str(cfg),
+                 "--yes", "--json-report", str(report_path)],
+            )
+        assert result.exit_code == 0
+        assert report_path.exists()
+        data = _json.loads(report_path.read_text(encoding="utf-8"))
+        assert data["updated_count"] == 2
+        assert data["new_count"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -454,7 +517,7 @@ class TestImportSessionRecovery:
             MockConn.open.return_value = MagicMock()
             result = runner.invoke(
                 app,
-                ["import", "--file", str(xlsx), "--config", str(cfg), "--discard-session"],
+                ["import", "--file", str(xlsx), "--config", str(cfg), "--discard-session", "--yes"],
             )
         assert result.exit_code == 0
         assert not session_file.exists()
@@ -521,7 +584,7 @@ class TestImportSessionRecovery:
             MockConn.open.return_value = MagicMock()
             result = runner.invoke(
                 app,
-                ["import", "--file", str(xlsx), "--config", str(cfg), "--discard-session"],
+                ["import", "--file", str(xlsx), "--config", str(cfg), "--discard-session", "--yes"],
             )
         assert result.exit_code == 0
         assert not session_file.exists()
