@@ -241,8 +241,7 @@ def import_mod(
         conn.close()
         raise typer.Exit(1) from exc
 
-    if not quiet:
-        print_diff_summary(stats, quiet=quiet)
+    print_diff_summary(stats, quiet=quiet)
 
     if deletion_policy == "purge" and not force:
         print_error("--deletion-policy purge requires --force flag.")
