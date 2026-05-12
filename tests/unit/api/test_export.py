@@ -380,3 +380,35 @@ class TestSheetProtection:
         ot_col = headers.index("Object Text") + 1
         # Object Text is read_only=False → unlocked
         assert ws.cell(2, ot_col).protection.locked is False
+
+    def test_mixed_columns_locked_and_unlocked(self, tmp_path):
+        """One read_only=True column stays locked, one read_only=False is unlocked — in same workbook."""
+        from doors_excel.api.export import export_module
+
+        mixed_cfg = ModuleConfig(
+            module_path="/proj/Mod",
+            column_mappings=[
+                ColumnMapping(column="Object Text", attribute="Object Text", attribute_type="Text", read_only=False),
+                ColumnMapping(column="Short Name", attribute="Short Name", attribute_type="String", read_only=True),
+            ],
+        )
+        out = tmp_path / "out.xlsx"
+        with patch(
+            "doors_excel.api.export.DoorsExporter.export_module",
+            return_value=_raw_rows(attrs=["Object Text", "Short Name"]),
+        ):
+            export_module(
+                "/proj/Mod", mixed_cfg, out,
+                doors_conn=object(),
+                sheet_protection=True,
+            )
+
+        wb = openpyxl.load_workbook(out)
+        ws = wb.active
+        headers = [ws.cell(1, c).value for c in range(1, ws.max_column + 1)]
+        ot_col = headers.index("Object Text") + 1
+        sn_col = headers.index("Short Name") + 1
+        # Object Text is editable → explicitly unlocked
+        assert ws.cell(2, ot_col).protection.locked is False
+        # Short Name is read_only → locked (True or None = openpyxl default locked)
+        assert ws.cell(2, sn_col).protection.locked is not False

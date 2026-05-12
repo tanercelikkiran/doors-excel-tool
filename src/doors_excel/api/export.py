@@ -11,18 +11,21 @@ from doors_excel.infrastructure.doors.exporter import DoorsExporter
 from doors_excel.infrastructure.excel.writer import add_module_sheet, create_workbook, save_workbook
 
 if TYPE_CHECKING:
+    from openpyxl.worksheet.worksheet import Worksheet
+
     from doors_excel.api.sessions import SessionManager
 
 
 def _apply_worksheet_protection(
-    ws: object,
+    ws: Worksheet,
     headers: list[str],
-    module_config: "ModuleConfig",
+    module_config: ModuleConfig,
     *,
     password: str | None = None,
 ) -> None:
     """Lock all cells then unlock data cells for editable columns."""
     from openpyxl.styles import Protection
+
     from doors_excel.infrastructure.excel.protection import apply_sheet_protection
 
     editable_cols: set[int] = set()
@@ -51,7 +54,7 @@ def export_module(
     *,
     doors_conn: object,
     baseline: str = "current",
-    session_manager: "SessionManager | None" = None,
+    session_manager: SessionManager | None = None,
     sheet_protection: bool = False,
     sheet_protection_password: str | None = None,
 ) -> Path:
@@ -115,7 +118,7 @@ def export_module(
 
 
 def _populate_session(
-    mgr: "SessionManager",
+    mgr: SessionManager,
     excel_path: Path,
     module_path: str,
     raw_rows: list[dict],
