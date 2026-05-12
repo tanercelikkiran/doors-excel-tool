@@ -470,6 +470,32 @@ class TestImportCommand:
         assert data["updated_count"] == 2
         assert data["new_count"] == 1
 
+    def test_import_json_report_written_in_dry_run(self, tmp_path: Path) -> None:
+        """--json-report is written even without --yes (CI diff-inspection use case)."""
+        import json as _json
+        from doors_excel.core.diff.summary import DiffSummary
+
+        cfg = _write_valid_config(tmp_path)
+        xlsx = self._write_import_xlsx(tmp_path)
+        report_path = tmp_path / "dry_report.json"
+        stats = DiffSummary(new_count=1, deleted_count=0, updated_count=2, conflict_count=0, moved_count=0, baseline_mismatch_count=0)
+        with patch("doors_excel.cli.app.DoorsConnection") as MockConn, \
+             patch("doors_excel.cli.app.stage_import_api", return_value=("sid1", stats)), \
+             patch("doors_excel.cli.app.execute_import_api") as mock_exec, \
+             patch("doors_excel.cli.app.KeepAliveWatchdog"):
+            MockConn.open.return_value = MagicMock()
+            result = runner.invoke(
+                app,
+                ["import", "--file", str(xlsx), "--config", str(cfg),
+                 "--json-report", str(report_path)],  # no --yes
+            )
+        assert result.exit_code == 0
+        mock_exec.assert_not_called()
+        assert report_path.exists()
+        data = _json.loads(report_path.read_text(encoding="utf-8"))
+        assert data["updated_count"] == 2
+        assert data["new_count"] == 1
+
 
 # ---------------------------------------------------------------------------
 # import — session recovery

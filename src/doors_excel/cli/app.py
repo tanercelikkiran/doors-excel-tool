@@ -4,11 +4,9 @@ Commands
 --------
 validate    Validate a config file and/or an Excel file (fully implemented).
 export      Export a DOORS module to Excel (fully implemented).
-import-mod  Import an Excel file into DOORS (stub — not yet implemented).
+import      Import an Excel file into DOORS (fully implemented).
 rollback    Generate a rollback Excel from a session snapshot (fully implemented).
 """
-from __future__ import annotations
-
 from __future__ import annotations
 
 import json
@@ -211,7 +209,7 @@ def export(
 
 
 # ---------------------------------------------------------------------------
-# import (stub) — named import-mod to avoid shadowing Python built-in
+# import — named import-mod to avoid shadowing Python built-in
 # ---------------------------------------------------------------------------
 
 @app.command(name="import")
