@@ -128,19 +128,18 @@ def validate(
             raise typer.Exit(1)
 
         try:
-            result = validate_excel(file, mod_cfg)
+            if feedback:
+                from doors_excel.api.validate import generate_validation_feedback
+                result = generate_validation_feedback(file, mod_cfg)
+                if not quiet:
+                    console.print(f"[dim]Validation feedback written to {file}[/]")
+            else:
+                result = validate_excel(file, mod_cfg)
         except DoorsExcelError as exc:
             print_error(str(exc))
             raise typer.Exit(1) from exc
 
         print_validation_result(result, quiet=quiet)
-
-        if feedback:
-            from doors_excel.api.validate import generate_validation_feedback
-            generate_validation_feedback(file, mod_cfg)
-            if not quiet:
-                console.print(f"[dim]Validation feedback written to {file}[/]")
-
         if result.has_errors:
             raise typer.Exit(1)
 

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import openpyxl
-import pytest
 
 
 class TestWriteValidationFeedback:
@@ -93,3 +92,16 @@ class TestWriteValidationFeedback:
         assert len(headers) == 3
         fb_col = headers.index(FEEDBACK_COLUMN) + 1
         assert ws.cell(2, fb_col).value == "new error"
+
+    def test_feedback_roundtrip(self, tmp_path):
+        """Feedback column survives workbook save and reload."""
+        from doors_excel.infrastructure.excel.feedback import write_validation_feedback, FEEDBACK_COLUMN
+        wb, ws = self._make_ws([["Absolute Number", "Object Text"], [1, "hello"]])
+        write_validation_feedback(ws, {2: ["Round-trip error"]})
+        path = tmp_path / "out.xlsx"
+        wb.save(path)
+        wb2 = openpyxl.load_workbook(path)
+        ws2 = wb2.active
+        headers = [ws2.cell(1, c).value for c in range(1, ws2.max_column + 1)]
+        fb_col = headers.index(FEEDBACK_COLUMN) + 1
+        assert ws2.cell(2, fb_col).value == "Round-trip error"

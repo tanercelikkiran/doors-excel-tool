@@ -1,11 +1,16 @@
 """Write _DOORS_Validation_Feedback column back to Excel (REQ-SAF-402)."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from openpyxl.worksheet.worksheet import Worksheet
+
 FEEDBACK_COLUMN = "_DOORS_Validation_Feedback"
 
 
 def write_validation_feedback(
-    ws: object,
+    ws: "Worksheet",
     row_errors: dict[int, list[str]],
     *,
     column_name: str = FEEDBACK_COLUMN,
