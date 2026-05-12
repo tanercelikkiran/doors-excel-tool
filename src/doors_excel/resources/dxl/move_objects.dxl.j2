@@ -21,10 +21,12 @@ if null m then {
             {% endif %}
         }
         {% else %}
-        {# object(0, m) retrieves the module root pseudo-object. Verify in live DOORS. #}
         Object root = object(0, m)
         if !null root then {
             move(child, below, root)
+        } else {
+            print "DOORS_IMPORT_ERROR: Cannot resolve module root for object {{ mv.object_id | dxl_value }}\n"
+            halt
         }
         {% endif %}
     }

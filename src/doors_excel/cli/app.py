@@ -319,9 +319,12 @@ def import_mod(
 
             print_diff_summary(_rstats, quiet=quiet)
             if not quiet:
-                console.print("[dim]Resuming session validated. Re-run without --resume to apply changes.[/]")
+                console.print(
+                    "[dim]Session validated (staged diff shown above). "
+                    "To apply, re-run with --discard-session --yes to reset and execute a fresh import.[/]"
+                )
 
-            # For now resume exits here (full execute-on-resume is a future task)
+            # Full execute-on-resume (applying the already-staged diff) is a future task.
             raise typer.Exit(0)
         else:
             print_error(
