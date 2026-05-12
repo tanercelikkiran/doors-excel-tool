@@ -195,6 +195,8 @@ def export(
             doors_conn=conn,
             baseline=baseline,
             session_manager=session_mgr,
+            sheet_protection=project_cfg.sheet_protection,
+            sheet_protection_password=project_cfg.sheet_protection_password,
         )
     except DoorsExcelError as exc:
         print_error(str(exc))

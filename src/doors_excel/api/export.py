@@ -14,6 +14,36 @@ if TYPE_CHECKING:
     from doors_excel.api.sessions import SessionManager
 
 
+def _apply_worksheet_protection(
+    ws: object,
+    headers: list[str],
+    module_config: "ModuleConfig",
+    *,
+    password: str | None = None,
+) -> None:
+    """Lock all cells then unlock data cells for editable columns."""
+    from openpyxl.styles import Protection
+    from doors_excel.infrastructure.excel.protection import apply_sheet_protection
+
+    editable_cols: set[int] = set()
+    for idx, header in enumerate(headers, start=1):
+        col_cfg = next(
+            (m for m in module_config.column_mappings if m.column == header),
+            None,
+        )
+        if col_cfg is not None and not col_cfg.read_only:
+            editable_cols.add(idx)
+
+    for row in ws.iter_rows(min_row=2):
+        for cell in row:
+            if cell.column in editable_cols:
+                cell.protection = Protection(locked=False)
+            else:
+                cell.protection = Protection(locked=True)
+
+    apply_sheet_protection(ws, password=password, enabled=True)
+
+
 def export_module(
     module_path: str,
     module_config: ModuleConfig,
@@ -22,6 +52,8 @@ def export_module(
     doors_conn: object,
     baseline: str = "current",
     session_manager: "SessionManager | None" = None,
+    sheet_protection: bool = False,
+    sheet_protection_password: str | None = None,
 ) -> Path:
     """Export *module_path* from DOORS to an Excel file at *output_path*.
 
@@ -68,6 +100,11 @@ def export_module(
     ws.append(headers)
     for oid in sorted(objects):
         ws.append([objects[oid].get(h) for h in headers])
+
+    if sheet_protection:
+        _apply_worksheet_protection(
+            ws, headers, module_config, password=sheet_protection_password
+        )
 
     saved_path = save_workbook(wb, output)
 

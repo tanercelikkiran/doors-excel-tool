@@ -71,6 +71,7 @@ class ProjectConfig(BaseModel):
     default_conflict_policy: ConflictPolicy = "excel-wins"
     trim_whitespace: bool = True
     sheet_protection: bool = False
+    sheet_protection_password: str | None = None
 
 
 def load_config(path: Path | str) -> ProjectConfig:

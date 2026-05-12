@@ -272,3 +272,111 @@ class TestSessionAwareExport:
                 doors_conn=mock_conn,
             )
         assert out.exists()  # unchanged behaviour
+
+
+# ---------------------------------------------------------------------------
+# Sheet protection
+# ---------------------------------------------------------------------------
+
+class TestSheetProtection:
+    def _make_mod_cfg(self, read_only_cols: list[str] | None = None) -> ModuleConfig:
+        return ModuleConfig(
+            module_path="/proj/Mod",
+            column_mappings=[
+                ColumnMapping(
+                    column="Object Text",
+                    attribute="Object Text",
+                    attribute_type="Text",
+                    read_only=("Object Text" in (read_only_cols or [])),
+                ),
+                ColumnMapping(
+                    column="Short Name",
+                    attribute="Short Name",
+                    attribute_type="String",
+                    read_only=("Short Name" in (read_only_cols or [])),
+                ),
+            ],
+        )
+
+    def test_protection_not_applied_by_default(self, tmp_path):
+        """No sheet_protection param → sheet.protection.sheet is False."""
+        from doors_excel.api.export import export_module
+
+        out = tmp_path / "out.xlsx"
+        with patch(
+            "doors_excel.api.export.DoorsExporter.export_module",
+            return_value=_raw_rows(attrs=["Object Text", "Short Name"]),
+        ):
+            export_module(
+                "/proj/Mod", self._make_mod_cfg(), out,
+                doors_conn=object(),
+            )
+
+        wb = openpyxl.load_workbook(out)
+        assert not wb.active.protection.sheet
+
+    def test_protection_applied_when_enabled(self, tmp_path):
+        """sheet_protection=True → sheet.protection.sheet is True."""
+        from doors_excel.api.export import export_module
+
+        out = tmp_path / "out.xlsx"
+        with patch(
+            "doors_excel.api.export.DoorsExporter.export_module",
+            return_value=_raw_rows(attrs=["Object Text", "Short Name"]),
+        ):
+            export_module(
+                "/proj/Mod", self._make_mod_cfg(), out,
+                doors_conn=object(),
+                sheet_protection=True,
+            )
+
+        wb = openpyxl.load_workbook(out)
+        assert wb.active.protection.sheet
+
+    def test_read_only_column_cells_locked(self, tmp_path):
+        """Columns with read_only=True → data cells are locked."""
+        from doors_excel.api.export import export_module
+
+        out = tmp_path / "out.xlsx"
+        with patch(
+            "doors_excel.api.export.DoorsExporter.export_module",
+            return_value=_raw_rows(attrs=["Object Text", "Short Name"]),
+        ):
+            export_module(
+                "/proj/Mod",
+                self._make_mod_cfg(read_only_cols=["Object Text", "Short Name"]),
+                out,
+                doors_conn=object(),
+                sheet_protection=True,
+            )
+
+        wb = openpyxl.load_workbook(out)
+        ws = wb.active
+        headers = [ws.cell(1, c).value for c in range(1, ws.max_column + 1)]
+        ot_col = headers.index("Object Text") + 1
+        # data row 2, Object Text is read_only → locked=True (or not explicitly False)
+        assert ws.cell(2, ot_col).protection.locked is not False
+
+    def test_editable_column_cells_unlocked(self, tmp_path):
+        """Columns with read_only=False → data cells are unlocked."""
+        from doors_excel.api.export import export_module
+
+        out = tmp_path / "out.xlsx"
+        with patch(
+            "doors_excel.api.export.DoorsExporter.export_module",
+            return_value=_raw_rows(attrs=["Object Text", "Short Name"]),
+        ):
+            export_module(
+                "/proj/Mod",
+                self._make_mod_cfg(read_only_cols=[]),  # all editable
+                out,
+                doors_conn=object(),
+                sheet_protection=True,
+            )
+
+        wb = openpyxl.load_workbook(out)
+        ws = wb.active
+        headers = [ws.cell(1, c).value for c in range(1, ws.max_column + 1)]
+        ot_col = headers.index("Object Text") + 1
+        # Object Text is read_only=False → unlocked
+        assert ws.cell(2, ot_col).protection.locked is False
