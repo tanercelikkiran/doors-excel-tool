@@ -87,13 +87,16 @@ def _expand_long_values(
             while len(chunks) < max_chunks:
                 chunks.append("")
             obj[col] = chunks[0]
-            for overflow_col, chunk in zip(overflow_headers, chunks[1:]):
+            for overflow_col, chunk in zip(overflow_headers, chunks[1:], strict=True):
                 obj[overflow_col] = chunk
 
-        # Insert overflow headers immediately after base col
+        # Insert overflow headers immediately after base col, skip if collision with real column
         col_idx = expanded.index(col)
-        for i, overflow_col in enumerate(overflow_headers, start=1):
-            expanded.insert(col_idx + i, overflow_col)
+        inserted = 0
+        for overflow_col in overflow_headers:
+            if overflow_col not in expanded:
+                expanded.insert(col_idx + 1 + inserted, overflow_col)
+                inserted += 1
 
     return expanded
 

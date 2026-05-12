@@ -43,6 +43,8 @@ def load_excel_to_staging(
     mapped_cols = {m.column for m in module_config.column_mappings}
     overflow_bases: dict[str, list[str]] = {}
     for h in headers:
+        if h in mapped_cols:
+            continue  # real column, never an overflow
         for base in mapped_cols:
             if base in headers and h.startswith(f"{base}_") and h[len(base) + 1:].isdigit():
                 overflow_bases.setdefault(base, []).append(h)
