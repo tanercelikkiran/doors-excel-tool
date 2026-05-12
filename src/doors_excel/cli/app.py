@@ -86,6 +86,10 @@ def validate(
         bool,
         typer.Option("--quiet", "-q", help="Suppress non-error output."),
     ] = False,
+    feedback: Annotated[
+        bool,
+        typer.Option("--feedback", help="Write validation errors back into the Excel file as a feedback column."),
+    ] = False,
 ) -> None:
     """Validate a config file and/or an Excel file against DOORS schema rules."""
     if config is None and file is None:
@@ -130,6 +134,13 @@ def validate(
             raise typer.Exit(1) from exc
 
         print_validation_result(result, quiet=quiet)
+
+        if feedback:
+            from doors_excel.api.validate import generate_validation_feedback
+            generate_validation_feedback(file, mod_cfg)
+            if not quiet:
+                console.print(f"[dim]Validation feedback written to {file}[/]")
+
         if result.has_errors:
             raise typer.Exit(1)
 

@@ -122,3 +122,56 @@ def _load_worksheet_to_staging(
 ) -> None:
     """Delegate to the public staging helper."""
     _load_excel_to_staging_public(ws, conn, session_id, module_config)
+
+
+def generate_validation_feedback(
+    excel_path: Path | str,
+    module_config: ModuleConfig,
+    *,
+    output_path: Path | str | None = None,
+) -> ValidationResult:
+    """Validate *excel_path* and write a feedback column back into the file.
+
+    Runs the full validation pipeline, queries row-level errors from the
+    ``validation_errors`` table, and upserts a ``_DOORS_Validation_Feedback``
+    column in the workbook.  Saves to *output_path* if given, otherwise
+    overwrites *excel_path*.
+
+    Sheet-level errors (``row_number = 0``, e.g. MISSING_COLUMN) are not
+    written to any data row — they are silently skipped by the writer.
+    """
+    import sqlite3 as _sqlite3
+
+    import openpyxl
+
+    from doors_excel.infrastructure.database.schema import apply_schema as _apply_schema
+    from doors_excel.infrastructure.excel.feedback import write_validation_feedback
+
+    p = Path(excel_path)
+    sid = str(__import__("uuid").uuid4())
+
+    conn = _sqlite3.connect(":memory:")
+    _apply_schema(conn)
+
+    try:
+        result = validate_excel(p, module_config, conn=conn, session_id=sid)
+
+        # Collect per-row errors from the validation_errors table
+        rows = conn.execute(
+            "SELECT row_number, message FROM validation_errors WHERE session_id = ?",
+            (sid,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    row_errors: dict[int, list[str]] = {}
+    for row_number, message in rows:
+        row_errors.setdefault(row_number, []).append(message)
+
+    wb = openpyxl.load_workbook(p)
+    ws = _pick_worksheet(wb, module_config)
+    write_validation_feedback(ws, row_errors)
+
+    save_path = Path(output_path) if output_path is not None else p
+    wb.save(save_path)
+    return result
