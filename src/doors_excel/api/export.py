@@ -47,6 +47,57 @@ def _apply_worksheet_protection(
     apply_sheet_protection(ws, password=password, enabled=True)
 
 
+def _expand_long_values(
+    objects: dict[int, dict],
+    module_config: ModuleConfig,
+    headers: list[str],
+) -> list[str]:
+    """Split Text-column values exceeding EXCEL_CELL_LIMIT; returns expanded headers."""
+    from loguru import logger
+
+    from doors_excel.core.transformation.smart_split import (
+        EXCEL_CELL_LIMIT,
+        smart_split,
+        split_column_headers,
+    )
+
+    text_cols = [m.column for m in module_config.column_mappings if m.attribute_type == "Text"]
+    expanded = list(headers)
+
+    for col in text_cols:
+        if col not in expanded:
+            continue
+        max_chunks = max(
+            (len(smart_split(str(obj.get(col) or ""))) for obj in objects.values()),
+            default=1,
+        )
+        if max_chunks <= 1:
+            continue
+
+        logger.warning(
+            "Column '{}' exceeds {} chars; splitting into {} columns.",
+            col, EXCEL_CELL_LIMIT, max_chunks,
+        )
+        all_headers = split_column_headers(col, max_chunks)
+        overflow_headers = all_headers[1:]
+
+        for obj in objects.values():
+            val = str(obj.get(col) or "")
+            chunks = smart_split(val)
+            while len(chunks) < max_chunks:
+                chunks.append("")
+            obj[col] = chunks[0]
+            for overflow_col, chunk in zip(overflow_headers, chunks[1:]):
+                obj[overflow_col] = chunk
+
+        # Insert overflow headers immediately after base col
+        col_idx = expanded.index(col)
+        for i, overflow_col in enumerate(overflow_headers, start=1):
+            expanded.insert(col_idx + i, overflow_col)
+
+    return expanded
+
+
 def export_module(
     module_path: str,
     module_config: ModuleConfig,
@@ -100,6 +151,7 @@ def export_module(
         [module_config.object_id_column, module_config.level_column, module_config.parent_id_column]
         + [m.column for m in module_config.column_mappings]
     )
+    headers = _expand_long_values(objects, module_config, headers)
     ws.append(headers)
     for oid in sorted(objects):
         ws.append([objects[oid].get(h) for h in headers])
