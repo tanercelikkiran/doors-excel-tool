@@ -375,6 +375,13 @@ def import_mod(
     db_path = file.parent / (file.stem + ".db")
 
     if bulk:
+        if yes:
+            print_error("--yes is not yet supported with --bulk. Dry-run only.")
+            conn.close()
+            raise typer.Exit(1)
+
+        watchdog = KeepAliveWatchdog(conn.run_dxl)
+        watchdog.start()
         try:
             results = bulk_stage_imports_api(
                 file,
@@ -385,8 +392,10 @@ def import_mod(
             )
         except DoorsExcelError as exc:
             print_error(str(exc))
-            conn.close()
             raise typer.Exit(1) from exc
+        finally:
+            watchdog.stop()
+            conn.close()
 
         for _session_id, sheet_title, stats, _mod_cfg in results:
             if not quiet:
@@ -395,7 +404,6 @@ def import_mod(
 
         if not quiet:
             console.print("[dim]Bulk dry-run complete. Use --yes to apply changes (not yet supported).[/]")
-        conn.close()
         raise typer.Exit(0)
 
     try:

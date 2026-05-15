@@ -81,6 +81,37 @@ class TestResolveWorksheetModule:
         result = resolve_worksheet_module(wb, ws, project_cfg)
         assert result is None
 
+    def test_match_by_case_insensitive_name(self, tmp_path: Path) -> None:
+        """Priority 3: case-insensitive module name match against sheet title."""
+        from doors_excel.api.import_ import resolve_worksheet_module
+
+        project_cfg = _make_project_cfg(["/proj/ModA"])
+        # Sheet title is lowercase "moda" — should still match module "ModA"
+        xlsx = _make_xlsx_with_sheets(tmp_path, [("moda", None)])
+
+        wb = openpyxl.load_workbook(xlsx)
+        ws = wb["moda"]
+        result = resolve_worksheet_module(wb, ws, project_cfg)
+        assert result is not None
+        assert result.module_path == "/proj/ModA"
+
+    def test_custom_property_wins_over_sheet_name(self, tmp_path: Path) -> None:
+        """Priority 1 (custom property) takes precedence over priority 2 (sheet name)."""
+        from doors_excel.api.import_ import resolve_worksheet_module
+        from doors_excel.infrastructure.excel.naming import make_sheet_name
+
+        # Sheet title matches ModB's make_sheet_name but has custom property for ModA
+        project_cfg = _make_project_cfg(["/proj/ModA", "/proj/ModB"])
+        sheet_b_name = make_sheet_name("ModB", "/proj/ModB")
+        # This sheet looks like ModB by name but is actually ModA by custom property
+        xlsx = _make_xlsx_with_sheets(tmp_path, [(sheet_b_name, "/proj/ModA")])
+
+        wb = openpyxl.load_workbook(xlsx)
+        ws = wb[sheet_b_name]
+        result = resolve_worksheet_module(wb, ws, project_cfg)
+        assert result is not None
+        assert result.module_path == "/proj/ModA"  # custom property wins
+
 
 class TestBulkStageImports:
     def test_bulk_stage_imports_returns_one_result_per_matched_sheet(self, tmp_path: Path) -> None:

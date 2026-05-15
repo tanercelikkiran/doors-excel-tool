@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
@@ -24,10 +25,14 @@ from doors_excel.infrastructure.doors.exporter import DoorsExporter
 from doors_excel.infrastructure.doors.importer import DoorsImporter
 from doors_excel.infrastructure.excel.reader import FormulaPolicy, open_workbook
 
+if TYPE_CHECKING:
+    from openpyxl import Workbook
+    from openpyxl.worksheet.worksheet import Worksheet
+
 
 def resolve_worksheet_module(
-    wb: object,
-    ws: object,
+    wb: Workbook,
+    ws: Worksheet,
     project_cfg: ProjectConfig,
 ) -> ModuleConfig | None:
     """Determine which ModuleConfig corresponds to *ws*.
@@ -61,13 +66,13 @@ def resolve_worksheet_module(
 
 
 def bulk_stage_imports(
-    excel_path: "Path | str",
+    excel_path: Path | str,
     project_cfg: ProjectConfig,
     *,
-    db_path: "Path | str",
+    db_path: Path | str,
     doors_conn: object,
     trim_whitespace: bool = True,
-) -> "list[tuple[str, str, DiffSummary, ModuleConfig]]":
+) -> list[tuple[str, str, DiffSummary, ModuleConfig]]:
     """Stage all matched worksheets in *excel_path*.
 
     Returns list of (session_id, sheet_title, diff_summary, module_config).
