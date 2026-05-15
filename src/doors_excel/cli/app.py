@@ -17,6 +17,7 @@ from typing import Annotated, Optional
 import typer
 
 from doors_excel.api.diff import run_diff as _run_diff_api
+from doors_excel.api.export import bulk_export as bulk_export_api
 from doors_excel.api.export import export_module as export_module_api
 from doors_excel.api.import_ import execute_import as execute_import_api
 from doors_excel.api.import_ import stage_import as stage_import_api
@@ -167,6 +168,10 @@ def export(
         bool,
         typer.Option("--quiet", "-q", help="Suppress non-error output."),
     ] = False,
+    bulk: Annotated[
+        bool,
+        typer.Option("--bulk", help="Export all modules from config into a single multi-sheet workbook."),
+    ] = False,
 ) -> None:
     """Export a DOORS module to Excel."""
     from doors_excel.api.validate import validate_config
@@ -198,16 +203,27 @@ def export(
     watchdog = KeepAliveWatchdog(conn.run_dxl)
     watchdog.start()
     try:
-        result_path = export_module_api(
-            mod_cfg.module_path,
-            mod_cfg,
-            out_path,
-            doors_conn=conn,
-            baseline=baseline,
-            session_manager=session_mgr,
-            sheet_protection=project_cfg.sheet_protection,
-            sheet_protection_password=project_cfg.sheet_protection_password,
-        )
+        if bulk:
+            result_path = bulk_export_api(
+                project_cfg.modules,
+                out_path,
+                doors_conn=conn,
+                baseline=baseline,
+                session_manager=session_mgr,
+                sheet_protection=project_cfg.sheet_protection,
+                sheet_protection_password=project_cfg.sheet_protection_password,
+            )
+        else:
+            result_path = export_module_api(
+                mod_cfg.module_path,
+                mod_cfg,
+                out_path,
+                doors_conn=conn,
+                baseline=baseline,
+                session_manager=session_mgr,
+                sheet_protection=project_cfg.sheet_protection,
+                sheet_protection_password=project_cfg.sheet_protection_password,
+            )
     except DoorsExcelError as exc:
         print_error(str(exc))
         raise typer.Exit(1) from exc
