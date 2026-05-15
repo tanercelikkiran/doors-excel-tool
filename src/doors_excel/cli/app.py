@@ -19,6 +19,7 @@ import typer
 from doors_excel.api.diff import run_diff as _run_diff_api
 from doors_excel.api.export import bulk_export as bulk_export_api
 from doors_excel.api.export import export_module as export_module_api
+from doors_excel.api.import_ import bulk_stage_imports as bulk_stage_imports_api
 from doors_excel.api.import_ import execute_import as execute_import_api
 from doors_excel.api.import_ import stage_import as stage_import_api
 from doors_excel.api.rollback import generate_rollback_excel as generate_rollback_excel_api
@@ -283,6 +284,10 @@ def import_mod(
         bool,
         typer.Option("--yes", "-y", help="Apply changes to DOORS (without this flag, only a diff preview is shown)."),
     ] = False,
+    bulk: Annotated[
+        bool,
+        typer.Option("--bulk", help="Import all matched worksheets from a multi-module workbook."),
+    ] = False,
     json_report: Annotated[
         Optional[Path],
         typer.Option("--json-report", help="Write diff summary as JSON to this path."),
@@ -368,6 +373,30 @@ def import_mod(
         raise typer.Exit(1) from exc
 
     db_path = file.parent / (file.stem + ".db")
+
+    if bulk:
+        try:
+            results = bulk_stage_imports_api(
+                file,
+                project_cfg,
+                db_path=db_path,
+                doors_conn=conn,
+                trim_whitespace=project_cfg.trim_whitespace,
+            )
+        except DoorsExcelError as exc:
+            print_error(str(exc))
+            conn.close()
+            raise typer.Exit(1) from exc
+
+        for _session_id, sheet_title, stats, _mod_cfg in results:
+            if not quiet:
+                console.print(f"[bold]Sheet:[/] {sheet_title}")
+            print_diff_summary(stats, quiet=quiet)
+
+        if not quiet:
+            console.print("[dim]Bulk dry-run complete. Use --yes to apply changes (not yet supported).[/]")
+        conn.close()
+        raise typer.Exit(0)
 
     try:
         session_id, stats = stage_import_api(

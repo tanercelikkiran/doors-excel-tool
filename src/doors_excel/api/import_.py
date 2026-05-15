@@ -15,7 +15,7 @@ from doors_excel.core.diff.summary import DiffSummary
 from doors_excel.core.transformation.hashing import hash_markdown as _hash_md
 from doors_excel.core.transformation.markdown_to_rtf import markdown_to_rtf
 from doors_excel.core.transformation.rtf_to_markdown import rtf_to_markdown
-from doors_excel.core.validation.models import ModuleConfig
+from doors_excel.core.validation.models import ModuleConfig, ProjectConfig
 from doors_excel.infrastructure.database.repositories import (
     StagingBaselineRepository,
     StagingDoorsRepository,
@@ -23,6 +23,73 @@ from doors_excel.infrastructure.database.repositories import (
 from doors_excel.infrastructure.doors.exporter import DoorsExporter
 from doors_excel.infrastructure.doors.importer import DoorsImporter
 from doors_excel.infrastructure.excel.reader import FormulaPolicy, open_workbook
+
+
+def resolve_worksheet_module(
+    wb: object,
+    ws: object,
+    project_cfg: ProjectConfig,
+) -> ModuleConfig | None:
+    """Determine which ModuleConfig corresponds to *ws*.
+
+    Priority:
+    1. Custom workbook property _DOORS_Module_Path::{sheet.title} matching module_path
+    2. Sheet name matches make_sheet_name(module_name, module_path)
+    3. Case-insensitive module name match against sheet title
+    """
+    from doors_excel.infrastructure.excel.metadata import get_module_path
+    from doors_excel.infrastructure.excel.naming import make_sheet_name
+
+    stored_path = get_module_path(wb, ws)
+    if stored_path:
+        match = next((m for m in project_cfg.modules if m.module_path == stored_path), None)
+        if match:
+            return match
+
+    for mod_cfg in project_cfg.modules:
+        mod_name = mod_cfg.module_path.rstrip("/").rsplit("/", 1)[-1]
+        if make_sheet_name(mod_name, mod_cfg.module_path) == ws.title:
+            return mod_cfg
+
+    ws_title_lower = ws.title.lower()
+    for mod_cfg in project_cfg.modules:
+        mod_name = mod_cfg.module_path.rstrip("/").rsplit("/", 1)[-1].lower()
+        if mod_name == ws_title_lower:
+            return mod_cfg
+
+    return None
+
+
+def bulk_stage_imports(
+    excel_path: "Path | str",
+    project_cfg: ProjectConfig,
+    *,
+    db_path: "Path | str",
+    doors_conn: object,
+    trim_whitespace: bool = True,
+) -> "list[tuple[str, str, DiffSummary, ModuleConfig]]":
+    """Stage all matched worksheets in *excel_path*.
+
+    Returns list of (session_id, sheet_title, diff_summary, module_config).
+    Sheets that don't match any ModuleConfig are silently skipped.
+    """
+    import openpyxl as _openpyxl
+
+    wb = _openpyxl.load_workbook(excel_path, data_only=True)
+    results = []
+    for ws in wb.worksheets:
+        mod_cfg = resolve_worksheet_module(wb, ws, project_cfg)
+        if mod_cfg is None:
+            continue
+        session_id, stats = stage_import(
+            excel_path,
+            mod_cfg,
+            db_path=db_path,
+            doors_conn=doors_conn,
+            trim_whitespace=trim_whitespace,
+        )
+        results.append((session_id, ws.title, stats, mod_cfg))
+    return results
 
 
 def stage_import(
