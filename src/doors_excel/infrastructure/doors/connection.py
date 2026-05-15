@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+import time
 from dataclasses import dataclass, field
 
 # Lazy import so non-Windows test environments can import this module.
@@ -25,10 +26,34 @@ class DoorsConnection:
         return cls(_app=app)
 
     def run_dxl(self, script: str) -> str | None:
-        """Execute *script* via the DOORS COM interface and return output."""
+        """Execute *script* via the DOORS COM interface; retries up to 3 times on COM errors.
+
+        Exponential backoff: 2 s, 4 s, 8 s between attempts.
+        RuntimeError (connection not open) propagates immediately without retry.
+        """
+        from loguru import logger
+
         if self._app is None:
             raise RuntimeError("DoorsConnection is not open")
-        return self._app.runScript(script)  # type: ignore[union-attr]
+
+        delay = 2.0
+        for attempt in range(4):  # 1 initial + 3 retries
+            try:
+                return self._app.runScript(script)  # type: ignore[union-attr]
+            except RuntimeError:
+                raise
+            except Exception as exc:
+                if attempt == 3:
+                    raise
+                logger.warning(
+                    "DOORS COM error (attempt {}/3): {}. Retrying in {}s...",
+                    attempt + 1,
+                    exc,
+                    delay,
+                )
+                time.sleep(delay)
+                delay *= 2
+        return None  # unreachable, satisfies type checker
 
     def close(self) -> None:
         """Release the COM reference."""
