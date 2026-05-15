@@ -200,7 +200,6 @@ def export(
         raise typer.Exit(1) from exc
 
     db_path = out_path.with_suffix(".db")
-    session_mgr = _SessionMgr(db_path)
     watchdog = KeepAliveWatchdog(conn.run_dxl)
     watchdog.start()
     try:
@@ -210,29 +209,31 @@ def export(
                 out_path,
                 doors_conn=conn,
                 baseline=baseline,
-                session_manager=session_mgr,
                 sheet_protection=project_cfg.sheet_protection,
                 sheet_protection_password=project_cfg.sheet_protection_password,
                 include_source_baseline=project_cfg.include_source_baseline,
             )
         else:
-            result_path = export_module_api(
-                mod_cfg.module_path,
-                mod_cfg,
-                out_path,
-                doors_conn=conn,
-                baseline=baseline,
-                session_manager=session_mgr,
-                sheet_protection=project_cfg.sheet_protection,
-                sheet_protection_password=project_cfg.sheet_protection_password,
-                include_source_baseline=project_cfg.include_source_baseline,
-            )
+            session_mgr = _SessionMgr(db_path)
+            try:
+                result_path = export_module_api(
+                    mod_cfg.module_path,
+                    mod_cfg,
+                    out_path,
+                    doors_conn=conn,
+                    baseline=baseline,
+                    session_manager=session_mgr,
+                    sheet_protection=project_cfg.sheet_protection,
+                    sheet_protection_password=project_cfg.sheet_protection_password,
+                    include_source_baseline=project_cfg.include_source_baseline,
+                )
+            finally:
+                session_mgr.close()
     except DoorsExcelError as exc:
         print_error(str(exc))
         raise typer.Exit(1) from exc
     finally:
         watchdog.stop()
-        session_mgr.close()
         conn.close()
 
     if not quiet:

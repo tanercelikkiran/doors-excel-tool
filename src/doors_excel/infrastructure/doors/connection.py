@@ -52,6 +52,7 @@ class DoorsConnection:
                 )
                 time.sleep(delay)
                 delay *= 2
+        raise RuntimeError("unreachable")  # loop always returns or raises
 
     def close(self) -> None:
         """Release the COM reference."""

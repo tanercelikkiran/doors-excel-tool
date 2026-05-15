@@ -92,6 +92,7 @@ def bulk_stage_imports(
             db_path=db_path,
             doors_conn=doors_conn,
             trim_whitespace=trim_whitespace,
+            sheet_title=ws.title,
         )
         results.append((session_id, ws.title, stats, mod_cfg))
     return results
@@ -105,6 +106,7 @@ def stage_import(
     doors_conn: object,
     baseline: str = "current",
     trim_whitespace: bool = True,
+    sheet_title: str | None = None,
 ) -> tuple[str, DiffSummary]:
     """Stage an Excel import: load Excel + DOORS data into SQLite, compute diff.
 
@@ -123,7 +125,7 @@ def stage_import(
 
         # --- Stage Excel ---
         wb = open_workbook(p, formula_policy=FormulaPolicy.DATA_ONLY)
-        ws = _pick_worksheet(wb, module_config)
+        ws = wb[sheet_title] if sheet_title is not None else _pick_worksheet(wb, module_config)
         load_excel_to_staging(ws, conn, sid, module_config, trim_whitespace=trim_whitespace)
 
         # --- Stage DOORS (current state = staging_doors AND staging_baseline) ---

@@ -137,6 +137,37 @@ class TestBulkStageImports:
 
         assert len(results) == 2
 
+    def test_bulk_stage_imports_uses_correct_sheet_for_prefix_modules(self, tmp_path: Path) -> None:
+        """bulk_stage_imports must pass sheet_title to stage_import to bypass _pick_worksheet."""
+        from doors_excel.api.import_ import bulk_stage_imports
+        from doors_excel.infrastructure.excel.naming import make_sheet_name
+
+        # Create two sheets whose module names share a prefix
+        sheet_req = make_sheet_name("Req", "/proj/Req")
+        sheet_req_safety = make_sheet_name("ReqSafety", "/proj/ReqSafety")
+        xlsx = _make_xlsx_with_sheets(tmp_path, [(sheet_req, None), (sheet_req_safety, None)])
+
+        project_cfg = _make_project_cfg(["/proj/Req", "/proj/ReqSafety"])
+        db_path = tmp_path / "test.db"
+
+        staged_titles: list[str | None] = []
+
+        def capture_stage(excel_path, mod_cfg, *, db_path, doors_conn, trim_whitespace, sheet_title=None):
+            staged_titles.append(sheet_title)
+            return ("sid", MagicMock())
+
+        with patch("doors_excel.api.import_.stage_import", side_effect=capture_stage):
+            bulk_stage_imports(
+                xlsx,
+                project_cfg,
+                db_path=db_path,
+                doors_conn=MagicMock(),
+                trim_whitespace=True,
+            )
+
+        assert sheet_req in staged_titles
+        assert sheet_req_safety in staged_titles
+
     def test_bulk_stage_imports_skips_unmatched_sheets(self, tmp_path: Path) -> None:
         from doors_excel.api.import_ import bulk_stage_imports
         from doors_excel.infrastructure.excel.naming import make_sheet_name
