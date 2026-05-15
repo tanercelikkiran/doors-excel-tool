@@ -412,3 +412,81 @@ class TestSheetProtection:
         assert ws.cell(2, ot_col).protection.locked is False
         # Short Name is read_only → locked (True or None = openpyxl default locked)
         assert ws.cell(2, sn_col).protection.locked is not False
+
+
+# ---------------------------------------------------------------------------
+# Source baseline column
+# ---------------------------------------------------------------------------
+
+class TestSourceBaselineColumn:
+    def _make_mod_cfg(self) -> ModuleConfig:
+        return ModuleConfig(
+            module_path="/proj/Mod",
+            column_mappings=[
+                ColumnMapping(column="Object Text", attribute="Object Text", attribute_type="Text"),
+            ],
+        )
+
+    def test_source_baseline_column_absent_by_default(self, tmp_path: Path) -> None:
+        from doors_excel.api.export import export_module
+
+        out = tmp_path / "out.xlsx"
+        with patch(
+            "doors_excel.api.export.DoorsExporter.export_module",
+            return_value=_raw_rows(),
+        ):
+            export_module(
+                "/proj/Mod",
+                self._make_mod_cfg(),
+                out,
+                doors_conn=object(),
+            )
+
+        wb = openpyxl.load_workbook(out)
+        headers = [wb.active.cell(1, c).value for c in range(1, wb.active.max_column + 1)]
+        assert "Source Baseline" not in headers
+
+    def test_source_baseline_column_present_when_enabled(self, tmp_path: Path) -> None:
+        from doors_excel.api.export import export_module
+
+        out = tmp_path / "out.xlsx"
+        with patch(
+            "doors_excel.api.export.DoorsExporter.export_module",
+            return_value=_raw_rows(),
+        ):
+            export_module(
+                "/proj/Mod",
+                self._make_mod_cfg(),
+                out,
+                doors_conn=object(),
+                include_source_baseline=True,
+                baseline="v1.0",
+            )
+
+        wb = openpyxl.load_workbook(out)
+        headers = [wb.active.cell(1, c).value for c in range(1, wb.active.max_column + 1)]
+        assert "Source Baseline" in headers
+        sb_col = headers.index("Source Baseline") + 1
+        assert wb.active.cell(2, sb_col).value == "v1.0"
+
+    def test_source_baseline_default_baseline_value(self, tmp_path: Path) -> None:
+        """When no baseline= is passed, the column value should be 'current'."""
+        from doors_excel.api.export import export_module
+
+        out = tmp_path / "out.xlsx"
+        with patch(
+            "doors_excel.api.export.DoorsExporter.export_module",
+            return_value=_raw_rows(),
+        ):
+            export_module(
+                "/proj/Mod",
+                self._make_mod_cfg(),
+                out,
+                doors_conn=object(),
+                include_source_baseline=True,
+            )
+
+        wb = openpyxl.load_workbook(out)
+        headers = [wb.active.cell(1, c).value for c in range(1, wb.active.max_column + 1)]
+        sb_col = headers.index("Source Baseline") + 1
+        assert wb.active.cell(2, sb_col).value == "current"

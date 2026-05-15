@@ -213,6 +213,7 @@ def export(
                 session_manager=session_mgr,
                 sheet_protection=project_cfg.sheet_protection,
                 sheet_protection_password=project_cfg.sheet_protection_password,
+                include_source_baseline=project_cfg.include_source_baseline,
             )
         else:
             result_path = export_module_api(
@@ -224,6 +225,7 @@ def export(
                 session_manager=session_mgr,
                 sheet_protection=project_cfg.sheet_protection,
                 sheet_protection_password=project_cfg.sheet_protection_password,
+                include_source_baseline=project_cfg.include_source_baseline,
             )
     except DoorsExcelError as exc:
         print_error(str(exc))

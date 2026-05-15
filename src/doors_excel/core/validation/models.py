@@ -72,6 +72,7 @@ class ProjectConfig(BaseModel):
     trim_whitespace: bool = True
     sheet_protection: bool = False
     sheet_protection_password: str | None = None
+    include_source_baseline: bool = False
 
 
 def load_config(path: Path | str) -> ProjectConfig:

@@ -139,6 +139,8 @@ def _write_module_sheet(
     *,
     sheet_protection: bool = False,
     sheet_protection_password: str | None = None,
+    include_source_baseline: bool = False,
+    baseline: str = "current",
 ) -> Worksheet:
     """Add a sheet for one module to *wb*, write headers and data rows, apply protection."""
     ws = add_module_sheet(wb, module_name, module_path)
@@ -146,6 +148,10 @@ def _write_module_sheet(
         [module_config.object_id_column, module_config.level_column, module_config.parent_id_column]
         + [m.column for m in module_config.column_mappings]
     )
+    if include_source_baseline:
+        headers = headers + ["Source Baseline"]
+        for obj in objects.values():
+            obj["Source Baseline"] = baseline
     headers = _expand_long_values(objects, module_config, headers)
     ws.append(headers)
     for oid in sorted(objects):
@@ -165,6 +171,7 @@ def export_module(
     session_manager: SessionManager | None = None,
     sheet_protection: bool = False,
     sheet_protection_password: str | None = None,
+    include_source_baseline: bool = False,
 ) -> Path:
     """Export *module_path* from DOORS to an Excel file at *output_path*.
 
@@ -185,6 +192,8 @@ def export_module(
         wb, module_name, module_path, objects, module_config,
         sheet_protection=sheet_protection,
         sheet_protection_password=sheet_protection_password,
+        include_source_baseline=include_source_baseline,
+        baseline=baseline,
     )
 
     saved_path = save_workbook(wb, output)
@@ -204,6 +213,7 @@ def bulk_export(
     session_manager: SessionManager | None = None,
     sheet_protection: bool = False,
     sheet_protection_password: str | None = None,
+    include_source_baseline: bool = False,
 ) -> Path:
     """Export multiple DOORS modules into a single multi-sheet workbook.
 
@@ -227,6 +237,8 @@ def bulk_export(
             wb, module_name, module_config.module_path, objects, module_config,
             sheet_protection=sheet_protection,
             sheet_protection_password=sheet_protection_password,
+            include_source_baseline=include_source_baseline,
+            baseline=baseline,
         )
 
     return save_workbook(wb, output)
