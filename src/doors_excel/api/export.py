@@ -4,8 +4,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from doors_excel.core.transformation.hashing import hash_markdown
-from doors_excel.core.transformation.rtf_to_markdown import rtf_to_markdown
 from doors_excel.core.validation.models import ModuleConfig
 from doors_excel.infrastructure.doors.exporter import DoorsExporter
 from doors_excel.infrastructure.excel.writer import add_module_sheet, create_workbook, save_workbook
@@ -101,6 +99,62 @@ def _expand_long_values(
     return expanded
 
 
+def _build_objects_from_rows(
+    raw_rows: list[dict],
+    module_config: ModuleConfig,
+) -> dict[int, dict]:
+    """Build the objects dict from flat raw_rows (applies RTF→Markdown for Text attrs)."""
+    from doors_excel.core.transformation.hashing import hash_markdown
+    from doors_excel.core.transformation.rtf_to_markdown import rtf_to_markdown
+
+    text_attrs = {m.attribute for m in module_config.column_mappings if m.attribute_type == "Text"}
+    for row in raw_rows:
+        if row["attribute"] in text_attrs and row["rtf_value"]:
+            result = rtf_to_markdown(row["rtf_value"])
+            row["value"] = result.markdown
+            row["md_hash"] = hash_markdown(result.markdown)
+
+    objects: dict[int, dict] = {}
+    attr_to_col = {m.attribute: m.column for m in module_config.column_mappings}
+    for row in raw_rows:
+        oid = row["object_id"]
+        if oid not in objects:
+            objects[oid] = {
+                module_config.object_id_column: oid,
+                module_config.level_column: row["level"],
+                module_config.parent_id_column: row["parent_id"],
+            }
+        col = attr_to_col.get(row["attribute"])
+        if col:
+            objects[oid][col] = row["value"]
+    return objects
+
+
+def _write_module_sheet(
+    wb: object,
+    module_name: str,
+    module_path: str,
+    objects: dict[int, dict],
+    module_config: ModuleConfig,
+    *,
+    sheet_protection: bool = False,
+    sheet_protection_password: str | None = None,
+) -> Worksheet:
+    """Add a sheet for one module to *wb*, write headers and data rows, apply protection."""
+    ws = add_module_sheet(wb, module_name, module_path)
+    headers = (
+        [module_config.object_id_column, module_config.level_column, module_config.parent_id_column]
+        + [m.column for m in module_config.column_mappings]
+    )
+    headers = _expand_long_values(objects, module_config, headers)
+    ws.append(headers)
+    for oid in sorted(objects):
+        ws.append([objects[oid].get(h) for h in headers])
+    if sheet_protection:
+        _apply_worksheet_protection(ws, headers, module_config, password=sheet_protection_password)
+    return ws
+
+
 def export_module(
     module_path: str,
     module_config: ModuleConfig,
@@ -120,49 +174,18 @@ def export_module(
     """
     output = Path(output_path)
     attributes = [m.attribute for m in module_config.column_mappings]
-    text_attrs = {m.attribute for m in module_config.column_mappings if m.attribute_type == "Text"}
 
     exporter = DoorsExporter(doors_conn)
     raw_rows = exporter.export_module(module_path, attributes, baseline=baseline)
 
-    for row in raw_rows:
-        if row["attribute"] in text_attrs and row["rtf_value"]:
-            result = rtf_to_markdown(row["rtf_value"])
-            row["value"] = result.markdown
-            row["md_hash"] = hash_markdown(result.markdown)
-
-    objects: dict[int, dict] = {}
-    attr_to_col = {m.attribute: m.column for m in module_config.column_mappings}
-
-    for row in raw_rows:
-        oid = row["object_id"]
-        if oid not in objects:
-            objects[oid] = {
-                module_config.object_id_column: oid,
-                module_config.level_column: row["level"],
-                module_config.parent_id_column: row["parent_id"],
-            }
-        col = attr_to_col.get(row["attribute"])
-        if col:
-            objects[oid][col] = row["value"]
-
+    objects = _build_objects_from_rows(raw_rows, module_config)
     module_name = module_path.rstrip("/").rsplit("/", 1)[-1]
     wb = create_workbook()
-    ws = add_module_sheet(wb, module_name, module_path)
-
-    headers = (
-        [module_config.object_id_column, module_config.level_column, module_config.parent_id_column]
-        + [m.column for m in module_config.column_mappings]
+    _write_module_sheet(
+        wb, module_name, module_path, objects, module_config,
+        sheet_protection=sheet_protection,
+        sheet_protection_password=sheet_protection_password,
     )
-    headers = _expand_long_values(objects, module_config, headers)
-    ws.append(headers)
-    for oid in sorted(objects):
-        ws.append([objects[oid].get(h) for h in headers])
-
-    if sheet_protection:
-        _apply_worksheet_protection(
-            ws, headers, module_config, password=sheet_protection_password
-        )
 
     saved_path = save_workbook(wb, output)
 
@@ -174,11 +197,11 @@ def export_module(
 
 def bulk_export(
     module_configs: list[ModuleConfig],
-    output_path: "Path | str",
+    output_path: Path | str,
     *,
     doors_conn: object,
     baseline: str = "current",
-    session_manager: "SessionManager | None" = None,
+    session_manager: SessionManager | None = None,
     sheet_protection: bool = False,
     sheet_protection_password: str | None = None,
 ) -> Path:
@@ -186,67 +209,31 @@ def bulk_export(
 
     Each module becomes one sheet. The workbook is saved once after all
     sheets are written.
+
+    Note: *session_manager* is accepted for API compatibility but is never
+    used. The session sidecar mechanism is designed for single-module sessions
+    and does not support multi-module bulk exports yet.
     """
     output = Path(output_path)
     exporter = DoorsExporter(doors_conn)
     wb = create_workbook()
-    all_raw_rows: list[tuple[str, list[dict]]] = []  # (module_path, raw_rows)
 
     for module_config in module_configs:
         attributes = [m.attribute for m in module_config.column_mappings]
-        text_attrs = {m.attribute for m in module_config.column_mappings if m.attribute_type == "Text"}
-
         raw_rows = exporter.export_module(module_config.module_path, attributes, baseline=baseline)
-
-        for row in raw_rows:
-            if row["attribute"] in text_attrs and row["rtf_value"]:
-                result = rtf_to_markdown(row["rtf_value"])
-                row["value"] = result.markdown
-                row["md_hash"] = hash_markdown(result.markdown)
-
-        objects: dict[int, dict] = {}
-        attr_to_col = {m.attribute: m.column for m in module_config.column_mappings}
-
-        for row in raw_rows:
-            oid = row["object_id"]
-            if oid not in objects:
-                objects[oid] = {
-                    module_config.object_id_column: oid,
-                    module_config.level_column: row["level"],
-                    module_config.parent_id_column: row["parent_id"],
-                }
-            col = attr_to_col.get(row["attribute"])
-            if col:
-                objects[oid][col] = row["value"]
-
+        objects = _build_objects_from_rows(raw_rows, module_config)
         module_name = module_config.module_path.rstrip("/").rsplit("/", 1)[-1]
-        ws = add_module_sheet(wb, module_name, module_config.module_path)
-
-        headers = (
-            [module_config.object_id_column, module_config.level_column, module_config.parent_id_column]
-            + [m.column for m in module_config.column_mappings]
+        _write_module_sheet(
+            wb, module_name, module_config.module_path, objects, module_config,
+            sheet_protection=sheet_protection,
+            sheet_protection_password=sheet_protection_password,
         )
-        headers = _expand_long_values(objects, module_config, headers)
-        ws.append(headers)
-        for oid in sorted(objects):
-            ws.append([objects[oid].get(h) for h in headers])
 
-        if sheet_protection:
-            _apply_worksheet_protection(ws, headers, module_config, password=sheet_protection_password)
-
-        all_raw_rows.append((module_config.module_path, raw_rows))
-
-    saved_path = save_workbook(wb, output)
-
-    if session_manager is not None:
-        for module_path, raw_rows in all_raw_rows:
-            _populate_session(session_manager, saved_path, module_path, raw_rows)
-
-    return saved_path
+    return save_workbook(wb, output)
 
 
 def _populate_session(
-    mgr: "SessionManager",
+    mgr: SessionManager,
     excel_path: Path,
     module_path: str,
     raw_rows: list[dict],

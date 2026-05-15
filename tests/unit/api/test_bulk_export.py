@@ -103,8 +103,24 @@ class TestBulkExport:
         assert len(data_rows) == 1
         assert 42 in data_rows[0]
 
+    def test_bulk_export_does_not_populate_sessions(self, tmp_path: Path) -> None:
+        """bulk_export must not call _populate_session (sidecar overwrite limitation)."""
+        from doors_excel.api.export import bulk_export
+        from doors_excel.api.sessions import SessionManager
+
+        with patch("doors_excel.api.export.DoorsExporter") as MockExp, \
+             patch("doors_excel.api.export._populate_session") as mock_pop:
+            MockExp.return_value.export_module.return_value = _raw_rows("/proj/ModA")
+            bulk_export(
+                [_make_mod_cfg("/proj/ModA")],
+                tmp_path / "bulk.xlsx",
+                doors_conn=object(),
+                session_manager=SessionManager.__new__(SessionManager),  # dummy, must not be called
+            )
+        mock_pop.assert_not_called()
+
     def test_bulk_export_cli_flag(self, tmp_path: Path) -> None:
-        """--bulk routes to bulk_export instead of export_module."""
+        """--bulk routes to bulk_export_api with project_cfg.modules and correct kwargs."""
         import json
         from typer.testing import CliRunner
         from doors_excel.cli.app import app
@@ -136,3 +152,13 @@ class TestBulkExport:
 
         assert result.exit_code == 0
         mock_bulk.assert_called_once()
+        call_args = mock_bulk.call_args
+        # bulk_export_api is called with positional args: (modules, out_path, ...)
+        modules_arg = call_args.args[0] if call_args.args else call_args.kwargs.get("module_configs", [])
+        assert len(modules_arg) == 1
+        assert modules_arg[0].module_path == "/proj/ModA"
+        # Verify key kwargs are forwarded correctly
+        kwargs = call_args.kwargs
+        assert kwargs.get("baseline") == "current"
+        assert kwargs.get("sheet_protection") is False
+        assert kwargs.get("sheet_protection_password") is None
