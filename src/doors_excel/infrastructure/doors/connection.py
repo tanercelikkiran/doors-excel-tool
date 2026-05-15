@@ -1,9 +1,12 @@
 """DoorsConnection — thin wrapper around the pywin32 COM bridge."""
+
 from __future__ import annotations
 
 import sys
 import time
 from dataclasses import dataclass, field
+
+from loguru import logger
 
 # Lazy import so non-Windows test environments can import this module.
 # On Windows, pywin32 is installed; tests patch win32com_gencache at module level.
@@ -20,7 +23,7 @@ class DoorsConnection:
     _app: object = field(default=None, repr=False)
 
     @classmethod
-    def open(cls) -> "DoorsConnection":
+    def open(cls) -> DoorsConnection:
         """Open a COM connection to a running DOORS instance."""
         app = win32com_gencache.EnsureDispatch("DOORS.Application")
         return cls(_app=app)
@@ -31,8 +34,6 @@ class DoorsConnection:
         Exponential backoff: 2 s, 4 s, 8 s between attempts.
         RuntimeError (connection not open) propagates immediately without retry.
         """
-        from loguru import logger
-
         if self._app is None:
             raise RuntimeError("DoorsConnection is not open")
 
@@ -40,8 +41,6 @@ class DoorsConnection:
         for attempt in range(4):  # 1 initial + 3 retries
             try:
                 return self._app.runScript(script)  # type: ignore[union-attr]
-            except RuntimeError:
-                raise
             except Exception as exc:
                 if attempt == 3:
                     raise
@@ -53,13 +52,12 @@ class DoorsConnection:
                 )
                 time.sleep(delay)
                 delay *= 2
-        return None  # unreachable, satisfies type checker
 
     def close(self) -> None:
         """Release the COM reference."""
         self._app = None
 
-    def __enter__(self) -> "DoorsConnection":
+    def __enter__(self) -> DoorsConnection:
         return self
 
     def __exit__(self, *_: object) -> None:

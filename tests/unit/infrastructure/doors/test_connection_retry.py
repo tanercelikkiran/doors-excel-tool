@@ -54,6 +54,20 @@ class TestRunDxlRetry:
         with pytest.raises(RuntimeError, match="not open"):
             conn.run_dxl("script")
 
+    def test_runtime_error_from_runscript_is_retried(self) -> None:
+        """RuntimeError from runScript (COM layer) should be retried."""
+        from doors_excel.infrastructure.doors.connection import DoorsConnection
+        conn = DoorsConnection.__new__(DoorsConnection)
+        mock_app = MagicMock()
+        mock_app.runScript.side_effect = [RuntimeError("COM dispatch error"), "ok"]
+        conn._app = mock_app
+
+        with patch("time.sleep"):
+            result = conn.run_dxl("script")
+
+        assert result == "ok"
+        assert mock_app.runScript.call_count == 2
+
     def test_sleep_uses_exponential_backoff(self) -> None:
         from doors_excel.infrastructure.doors.connection import DoorsConnection
         conn = DoorsConnection.__new__(DoorsConnection)
