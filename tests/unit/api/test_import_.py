@@ -143,6 +143,89 @@ class TestStageImport:
         assert isinstance(summary, DiffSummary), f"Expected DiffSummary, got {type(summary)}"
         assert hasattr(summary, "baseline_mismatch_count")
 
+    def test_stage_import_sets_has_rich_format_for_rich_rtf(self, tmp_path: Path) -> None:
+        """When RTF conversion produces warnings, has_rich_format=1 is stored."""
+        from unittest.mock import patch
+        from doors_excel.api.import_ import stage_import
+        from doors_excel.core.transformation.rtf_to_markdown import ConversionResult
+
+        xlsx = _write_xlsx(tmp_path, [
+            ["Absolute Number", "Object Text"],
+            [1, "bold text"],
+        ])
+        doors_rows = [{
+            "object_id": 1, "level": 1, "parent_id": None, "has_ole": 0,
+            "object_type": "OBJECT", "attribute": "Object Text",
+            "value": "bold text", "rtf_value": r"{\rtf1\cf1 colored}", "md_hash": None,
+        }]
+        rich_result = ConversionResult(
+            markdown="colored",
+            images={},
+            warnings=["object 1 Object Text: unsupported RTF element \\cf"],
+            has_ole=False,
+        )
+        db_path = tmp_path / "test.db"
+        with (
+            patch("doors_excel.api.import_.DoorsExporter.export_module", return_value=doors_rows),
+            patch("doors_excel.api.import_.rtf_to_markdown", return_value=rich_result),
+        ):
+            session_id, _ = stage_import(
+                xlsx,
+                _make_module_config(),
+                db_path=db_path,
+                doors_conn=object(),
+            )
+
+        import sqlite3
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT has_rich_format FROM staging_doors WHERE session_id = ? AND object_id = 1 AND attribute = 'Object Text'",
+            (session_id,),
+        ).fetchone()
+        conn.close()
+        assert row is not None
+        assert row["has_rich_format"] == 1
+
+    def test_stage_import_sets_has_rich_format_zero_for_clean_rtf(self, tmp_path: Path) -> None:
+        """When RTF conversion produces no warnings, has_rich_format=0."""
+        from unittest.mock import patch
+        from doors_excel.api.import_ import stage_import
+        from doors_excel.core.transformation.rtf_to_markdown import ConversionResult
+
+        xlsx = _write_xlsx(tmp_path, [
+            ["Absolute Number", "Object Text"],
+            [1, "plain text"],
+        ])
+        doors_rows = [{
+            "object_id": 1, "level": 1, "parent_id": None, "has_ole": 0,
+            "object_type": "OBJECT", "attribute": "Object Text",
+            "value": "plain text", "rtf_value": r"{\rtf1 plain}", "md_hash": None,
+        }]
+        clean_result = ConversionResult(markdown="plain text", images={}, warnings=[], has_ole=False)
+        db_path = tmp_path / "test.db"
+        with (
+            patch("doors_excel.api.import_.DoorsExporter.export_module", return_value=doors_rows),
+            patch("doors_excel.api.import_.rtf_to_markdown", return_value=clean_result),
+        ):
+            session_id, _ = stage_import(
+                xlsx,
+                _make_module_config(),
+                db_path=db_path,
+                doors_conn=object(),
+            )
+
+        import sqlite3
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT has_rich_format FROM staging_doors WHERE session_id = ? AND object_id = 1 AND attribute = 'Object Text'",
+            (session_id,),
+        ).fetchone()
+        conn.close()
+        assert row is not None
+        assert row["has_rich_format"] == 0
+
 
 class TestExecuteImport:
     def _make_conn(self, tmp_path: Path) -> sqlite3.Connection:
@@ -624,3 +707,108 @@ def test_execute_import_applies_ole_objects_when_accepted():
 
     assert applied == 1
     mock_imp.apply_updates.assert_called_once()
+
+
+class TestExecuteImportFormatLossGate:
+    """Tests for REQ-FUN-105.5: format loss gate in execute_import."""
+
+    def _make_conn_with_rich_update(self) -> "sqlite3.Connection":
+        """Return an in-memory DB with one UPDATED row where has_rich_format=1."""
+        from doors_excel.infrastructure.database.schema import apply_schema
+
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        apply_schema(conn)
+        sid = "s1"
+        conn.execute(
+            "INSERT INTO sessions (session_id, excel_path, doors_module, excel_sha256, module_version)"
+            " VALUES (?, 'f.xlsx', '/proj/mod', 'abc', 'current')", (sid,)
+        )
+        conn.execute(
+            "INSERT INTO staging_doors (session_id, object_id, attribute, value, rtf_value, has_ole, has_rich_format, md_hash)"
+            r" VALUES (?, 1, 'Object Text', 'colored text', '{\rtf1\cf1 colored}', 0, 1, 'doors_hash')", (sid,)
+        )
+        conn.execute(
+            "INSERT INTO staging_excel (session_id, row_number, object_id, attribute, value, md_hash)"
+            " VALUES (?, 1, 1, 'Object Text', 'changed text', 'excel_hash')", (sid,)
+        )
+        conn.execute(
+            "INSERT INTO diff_results (session_id, object_id, attribute, change_type, excel_value, doors_value, baseline_value)"
+            " VALUES (?, 1, 'Object Text', 'UPDATED', 'changed text', 'colored text', 'colored text')", (sid,)
+        )
+        conn.commit()
+        return conn
+
+    def test_format_loss_gate_skips_update_when_flag_false(self) -> None:
+        from doors_excel.api.import_ import execute_import
+
+        conn = self._make_conn_with_rich_update()
+        mock_importer = MagicMock()
+
+        with patch("doors_excel.api.import_.DoorsImporter") as MockImporter:
+            MockImporter.return_value = mock_importer
+            applied = execute_import(
+                "s1", conn,
+                doors_conn=MagicMock(),
+                accept_format_loss=False,
+            )
+
+        mock_importer.apply_updates.assert_not_called()
+        assert applied == 0
+
+    def test_format_loss_gate_allows_update_when_flag_true(self) -> None:
+        from doors_excel.api.import_ import execute_import
+
+        conn = self._make_conn_with_rich_update()
+        mock_importer = MagicMock()
+
+        with patch("doors_excel.api.import_.DoorsImporter") as MockImporter:
+            MockImporter.return_value = mock_importer
+            applied = execute_import(
+                "s1", conn,
+                doors_conn=MagicMock(),
+                accept_format_loss=True,
+            )
+
+        mock_importer.apply_updates.assert_called_once()
+        assert applied == 1
+
+    def test_format_loss_gate_not_triggered_for_unchanged_md_hash(self) -> None:
+        """has_rich_format=1 but md_hash unchanged -> RTF bypass, gate NOT triggered."""
+        from doors_excel.api.import_ import execute_import
+        from doors_excel.infrastructure.database.schema import apply_schema
+
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        apply_schema(conn)
+        sid = "s1"
+        conn.execute(
+            "INSERT INTO sessions (session_id, excel_path, doors_module, excel_sha256, module_version)"
+            " VALUES (?, 'f.xlsx', '/proj/mod', 'abc', 'current')", (sid,)
+        )
+        conn.execute(
+            "INSERT INTO staging_doors (session_id, object_id, attribute, value, rtf_value, has_ole, has_rich_format, md_hash)"
+            r" VALUES (?, 1, 'Object Text', 'colored text', '{\rtf1\cf1 colored}', 0, 1, 'same_hash')", (sid,)
+        )
+        conn.execute(
+            "INSERT INTO staging_excel (session_id, row_number, object_id, attribute, value, md_hash)"
+            " VALUES (?, 1, 1, 'Object Text', 'colored text', 'same_hash')", (sid,)
+        )
+        conn.execute(
+            "INSERT INTO diff_results (session_id, object_id, attribute, change_type, excel_value, doors_value, baseline_value)"
+            " VALUES (?, 1, 'Object Text', 'UPDATED', 'colored text', 'colored text', 'colored text')", (sid,)
+        )
+        conn.commit()
+
+        mock_importer = MagicMock()
+        with patch("doors_excel.api.import_.DoorsImporter") as MockImporter:
+            MockImporter.return_value = mock_importer
+            applied = execute_import(
+                sid, conn,
+                doors_conn=MagicMock(),
+                accept_format_loss=False,
+            )
+
+        # md_hash same -> RTF bypass will restore original RTF -> update proceeds
+        mock_importer.apply_updates.assert_called_once()
+        assert applied == 1

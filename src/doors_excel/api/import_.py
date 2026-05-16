@@ -136,9 +136,11 @@ def stage_import(
             m.attribute for m in module_config.column_mappings if m.attribute_type == "Text"
         }
         for row in raw_rows:
+            row.setdefault("has_rich_format", 0)
             if row["attribute"] in text_attrs and row.get("rtf_value"):
                 result = rtf_to_markdown(row["rtf_value"])
                 row["md_hash"] = _hash_md(result.markdown)
+                row["has_rich_format"] = 1 if result.warnings else 0
 
         StagingDoorsRepository(conn).insert_many(
             [{**row, "session_id": sid} for row in raw_rows]
@@ -178,6 +180,7 @@ def execute_import(
     soft_delete_attribute: str = "Status",
     soft_delete_value: str = "Deleted",
     accept_ole_overwrites: bool = False,
+    accept_format_loss: bool = False,
 ) -> int:
     """Apply UPDATED and CONFLICT diff_results to DOORS. Returns count applied.
 
@@ -199,6 +202,7 @@ def execute_import(
                s.doors_module,
                se.md_hash  AS excel_md_hash,
                sd.md_hash  AS doors_md_hash,
+               sd.has_rich_format,
                dr.doors_value,
                dr.baseline_value,
                rs.original_rtf
@@ -246,6 +250,26 @@ def execute_import(
                     "Use --accept-ole-overwrites to allow updates.",
                     len(ole_ids),
                 )
+
+    # Filter out format-loss-risk updates if accept_format_loss is False
+    if not accept_format_loss and rows:
+        format_loss_skipped = []
+        filtered_rows = []
+        for r in rows:
+            rich = r["has_rich_format"] if r["has_rich_format"] is not None else 0
+            excel_hash = r["excel_md_hash"]
+            doors_hash = r["doors_md_hash"]
+            if rich and (excel_hash is None or excel_hash != doors_hash):
+                format_loss_skipped.append(r)
+            else:
+                filtered_rows.append(r)
+        if format_loss_skipped:
+            logger.warning(
+                "Skipped {} attribute(s) with rich formatting loss risk. "
+                "Use --accept-format-loss to allow updates.",
+                len(format_loss_skipped),
+            )
+        rows = filtered_rows
 
     # Resolve module path (param → rows[0] → sessions lookup)
     if module_path is not None:
