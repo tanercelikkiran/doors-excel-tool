@@ -273,6 +273,37 @@ class TestRollbackSnapshotRepository:
         assert row["original_rtf"] == r"{\rtf1 Old Text}"
 
 
+class TestStagingDoorsTablePositionFields:
+    def test_stores_and_retrieves_table_position(self, seeded_conn: sqlite3.Connection) -> None:
+        from doors_excel.infrastructure.database.repositories import StagingDoorsRepository
+        repo = StagingDoorsRepository(seeded_conn)
+        repo.insert_many([{
+            "session_id": SESSION_ID, "object_id": -1, "attribute": "Object Text",
+            "value": "cell text", "rtf_value": "", "md_hash": None,
+            "object_type": "TABLE_ROW", "level": 1, "parent_id": None, "has_ole": 0,
+            "parent_absno": 42, "row_position": 1, "col_position": None,
+        }])
+        rows = repo.get_by_session(SESSION_ID)
+        assert len(rows) == 1
+        assert rows[0]["parent_absno"] == 42
+        assert rows[0]["row_position"] == 1
+        assert rows[0]["col_position"] is None
+
+    def test_object_rows_have_null_position_columns(self, seeded_conn: sqlite3.Connection) -> None:
+        from doors_excel.infrastructure.database.repositories import StagingDoorsRepository
+        repo = StagingDoorsRepository(seeded_conn)
+        repo.insert_many([{
+            "session_id": SESSION_ID, "object_id": 10, "attribute": "Object Text",
+            "value": "normal", "rtf_value": "", "md_hash": None,
+            "object_type": "OBJECT", "level": 1, "parent_id": None, "has_ole": 0,
+            "parent_absno": None, "row_position": None, "col_position": None,
+        }])
+        rows = repo.get_by_session(SESSION_ID)
+        assert rows[0]["parent_absno"] is None
+        assert rows[0]["row_position"] is None
+        assert rows[0]["col_position"] is None
+
+
 class TestValidationErrorRepository:
     def _rows(self) -> list[dict[str, Any]]:
         return [

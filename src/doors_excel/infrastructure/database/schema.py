@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import sqlite3
 
-SCHEMA_VERSION: int = 2
+SCHEMA_VERSION: int = 3
 
 SCHEMA_DDL: str = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -34,6 +34,9 @@ CREATE TABLE IF NOT EXISTS staging_doors (
     parent_id   INTEGER,
     has_ole         INTEGER NOT NULL DEFAULT 0,
     has_rich_format INTEGER NOT NULL DEFAULT 0,
+    parent_absno    INTEGER,
+    row_position    INTEGER,
+    col_position    INTEGER,
     UNIQUE(session_id, object_id, attribute)
 );
 
@@ -45,7 +48,10 @@ CREATE TABLE IF NOT EXISTS staging_baseline (
     value       TEXT,
     object_type TEXT,
     level       INTEGER,
-    parent_id   INTEGER,
+    parent_id    INTEGER,
+    parent_absno INTEGER,
+    row_position INTEGER,
+    col_position INTEGER,
     UNIQUE(session_id, object_id, attribute)
 );
 
@@ -105,15 +111,26 @@ CREATE INDEX IF NOT EXISTS idx_ve_session_sev  ON validation_errors(session_id, 
 """
 
 
-def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
-    try:
-        conn.execute(
-            "ALTER TABLE staging_doors ADD COLUMN has_rich_format INTEGER NOT NULL DEFAULT 0"
-        )
-        conn.commit()
-    except sqlite3.OperationalError as exc:
-        if "duplicate column name" not in str(exc).lower():
-            raise
+_NEW_COLS: list[tuple[str, str, str]] = [
+    ("staging_doors",    "has_rich_format", "INTEGER NOT NULL DEFAULT 0"),  # v2 — keep
+    ("staging_doors",    "parent_absno",    "INTEGER"),
+    ("staging_doors",    "row_position",    "INTEGER"),
+    ("staging_doors",    "col_position",    "INTEGER"),
+    ("staging_baseline", "parent_absno",    "INTEGER"),
+    ("staging_baseline", "row_position",    "INTEGER"),
+    ("staging_baseline", "col_position",    "INTEGER"),
+]
+
+
+def _apply_migrations(conn: sqlite3.Connection) -> None:
+    """Add all new columns idempotently via ALTER TABLE."""
+    for table, col, col_def in _NEW_COLS:
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_def}")
+            conn.commit()
+        except sqlite3.OperationalError as exc:
+            if "duplicate column name" not in str(exc).lower():
+                raise
 
 
 def apply_schema(conn: sqlite3.Connection) -> None:
@@ -134,13 +151,12 @@ def apply_schema(conn: sqlite3.Connection) -> None:
 
     conn.executescript(SCHEMA_DDL)
 
-    if old_version < 2:
-        _migrate_v1_to_v2(conn)
-        conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
-        conn.commit()
+    if old_version < SCHEMA_VERSION:
+        _apply_migrations(conn)
 
+    conn.execute("DELETE FROM schema_version")
     conn.execute(
-        "INSERT OR IGNORE INTO schema_version (version) VALUES (?)",
+        "INSERT INTO schema_version (version) VALUES (?)",
         (SCHEMA_VERSION,),
     )
     conn.commit()

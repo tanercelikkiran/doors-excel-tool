@@ -50,10 +50,12 @@ class StagingDoorsRepository:
         self.conn.executemany(
             """INSERT OR REPLACE INTO staging_doors
                (session_id, object_id, attribute, value, rtf_value, md_hash,
-                object_type, level, parent_id, has_ole, has_rich_format)
+                object_type, level, parent_id, has_ole, has_rich_format,
+                parent_absno, row_position, col_position)
                VALUES (:session_id, :object_id, :attribute, :value, :rtf_value, :md_hash,
-                       :object_type, :level, :parent_id, :has_ole, :has_rich_format)""",
-            [{"has_rich_format": 0, **r} for r in rows],
+                       :object_type, :level, :parent_id, :has_ole, :has_rich_format,
+                       :parent_absno, :row_position, :col_position)""",
+            [{"has_rich_format": 0, "parent_absno": None, "row_position": None, "col_position": None, **r} for r in rows],
         )
         self.conn.commit()
 
@@ -77,10 +79,12 @@ class StagingBaselineRepository:
             return
         self.conn.executemany(
             """INSERT OR REPLACE INTO staging_baseline
-               (session_id, object_id, attribute, value, object_type, level, parent_id)
+               (session_id, object_id, attribute, value, object_type, level, parent_id,
+                parent_absno, row_position, col_position)
                VALUES (:session_id, :object_id, :attribute, :value,
-                       :object_type, :level, :parent_id)""",
-            rows,
+                       :object_type, :level, :parent_id,
+                       :parent_absno, :row_position, :col_position)""",
+            [{"parent_absno": None, "row_position": None, "col_position": None, **r} for r in rows],
         )
         self.conn.commit()
 

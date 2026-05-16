@@ -156,14 +156,14 @@ class TestApplySchema:
         }
         assert "has_rich_format" in cols
 
-    def test_schema_version_is_2(self) -> None:
+    def test_schema_version_is_3(self) -> None:
         conn = _mem()
         apply_schema(conn)
         row = conn.execute("SELECT version FROM schema_version").fetchone()
-        assert row["version"] == 2
+        assert row["version"] == 3
 
-    def test_migration_v1_to_v2_adds_column(self) -> None:
-        """Simulates a v1 database (no has_rich_format column) and verifies migration adds it."""
+    def test_migration_v1_to_v3_adds_columns(self) -> None:
+        """Simulates a v1 database (no has_rich_format column) and verifies migration adds all new columns."""
         conn = _mem()
         conn.executescript("""
             CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
@@ -198,5 +198,23 @@ class TestApplySchema:
             for row in conn.execute("PRAGMA table_info(staging_doors)").fetchall()
         }
         assert "has_rich_format" in cols
+        assert "parent_absno" in cols
         vrow = conn.execute("SELECT version FROM schema_version").fetchone()
-        assert vrow[0] == 2
+        assert vrow[0] == 3
+
+    def test_staging_doors_has_table_position_columns(self) -> None:
+        conn = _mem()
+        apply_schema(conn)
+        cols = {row["name"] for row in conn.execute("PRAGMA table_info(staging_doors)").fetchall()}
+        assert {"parent_absno", "row_position", "col_position"} <= cols
+
+    def test_staging_baseline_has_table_position_columns(self) -> None:
+        conn = _mem()
+        apply_schema(conn)
+        cols = {row["name"] for row in conn.execute("PRAGMA table_info(staging_baseline)").fetchall()}
+        assert {"parent_absno", "row_position", "col_position"} <= cols
+
+    def test_migration_idempotent(self) -> None:
+        conn = _mem()
+        apply_schema(conn)
+        apply_schema(conn)  # must not raise
