@@ -271,6 +271,17 @@ def import_mod(
         bool,
         typer.Option("--accept-ole-overwrites", help="Allow updates to objects that contain embedded OLE objects (images, files)."),
     ] = False,
+    accept_format_loss: Annotated[
+        bool,
+        typer.Option(
+            "--accept-format-loss",
+            help=(
+                "Allow updates to DOORS attributes that contain rich formatting "
+                "(colors, fonts) which cannot be reconstructed from Markdown. "
+                "Without this flag, such updates are skipped to preserve original formatting."
+            ),
+        ),
+    ] = False,
     quiet: Annotated[
         bool,
         typer.Option("--quiet", "-q", help="Suppress non-error output."),
@@ -457,6 +468,12 @@ def import_mod(
 
     if not yes:
         if not quiet:
+            if stats.has_format_loss_risk:
+                console.print(
+                    f"[bold yellow]  Format-loss risk:[/] {stats.format_loss_risk_count} "
+                    "attribute(s) with rich formatting will lose colors/fonts. "
+                    "Use --accept-format-loss to proceed."
+                )
             console.print("[dim]Dry-run complete. Use --yes to apply changes.[/]")
         db_conn.close()
         conn.close()
@@ -473,6 +490,7 @@ def import_mod(
             include_new=include_new,
             deletion_policy=deletion_policy,
             accept_ole_overwrites=accept_ole_overwrites,
+            accept_format_loss=accept_format_loss,
         )
     except DoorsExcelError as exc:
         print_error(str(exc))
