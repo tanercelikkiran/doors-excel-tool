@@ -28,3 +28,7 @@ logs/
 *.exe
 Thumbs.db
 .DS_Store
+.claude
+CLAUDE.md
+GEMINI.md
+docs/
