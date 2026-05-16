@@ -146,3 +146,57 @@ class TestApplySchema:
         row = conn.execute("SELECT version FROM schema_version").fetchone()
         assert row is not None
         assert row["version"] == SCHEMA_VERSION
+
+    def test_staging_doors_has_rich_format_column(self) -> None:
+        conn = _mem()
+        apply_schema(conn)
+        cols = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(staging_doors)").fetchall()
+        }
+        assert "has_rich_format" in cols
+
+    def test_schema_version_is_2(self) -> None:
+        conn = _mem()
+        apply_schema(conn)
+        row = conn.execute("SELECT version FROM schema_version").fetchone()
+        assert row["version"] == 2
+
+    def test_migration_v1_to_v2_adds_column(self) -> None:
+        """Simulates a v1 database (no has_rich_format column) and verifies migration adds it."""
+        conn = _mem()
+        conn.executescript("""
+            CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
+            INSERT INTO schema_version VALUES (1);
+            CREATE TABLE sessions (
+                session_id TEXT NOT NULL PRIMARY KEY,
+                excel_path TEXT NOT NULL,
+                doors_module TEXT NOT NULL,
+                excel_sha256 TEXT NOT NULL,
+                module_version TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                status TEXT NOT NULL DEFAULT 'active'
+            );
+            CREATE TABLE staging_doors (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                object_id INTEGER NOT NULL,
+                attribute TEXT NOT NULL,
+                value TEXT,
+                rtf_value TEXT,
+                md_hash TEXT,
+                object_type TEXT,
+                level INTEGER,
+                parent_id INTEGER,
+                has_ole INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(session_id, object_id, attribute)
+            );
+        """)
+        apply_schema(conn)
+        cols = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(staging_doors)").fetchall()
+        }
+        assert "has_rich_format" in cols
+        vrow = conn.execute("SELECT version FROM schema_version").fetchone()
+        assert vrow[0] == 2

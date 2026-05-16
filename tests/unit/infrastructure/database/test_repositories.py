@@ -103,6 +103,45 @@ class TestStagingDoorsRepository:
     def test_insert_many_empty_list_is_noop(self, seeded_conn: sqlite3.Connection) -> None:
         StagingDoorsRepository(seeded_conn).insert_many([])
 
+    def test_staging_doors_insert_stores_has_rich_format(self, seeded_conn: sqlite3.Connection) -> None:
+        StagingDoorsRepository(seeded_conn).insert_many([{
+            "session_id": SESSION_ID,
+            "object_id": 1,
+            "attribute": "Object Text",
+            "value": "text",
+            "rtf_value": None,
+            "md_hash": None,
+            "object_type": "OBJECT",
+            "level": 1,
+            "parent_id": None,
+            "has_ole": 0,
+            "has_rich_format": 1,
+        }])
+        row = seeded_conn.execute(
+            "SELECT has_rich_format FROM staging_doors WHERE object_id = 1 AND attribute = 'Object Text'"
+        ).fetchone()
+        assert row["has_rich_format"] == 1
+
+    def test_staging_doors_insert_defaults_has_rich_format_to_zero(self, seeded_conn: sqlite3.Connection) -> None:
+        """Row dict without has_rich_format key should default to 0."""
+        StagingDoorsRepository(seeded_conn).insert_many([{
+            "session_id": SESSION_ID,
+            "object_id": 2,
+            "attribute": "Object Text",
+            "value": "text",
+            "rtf_value": None,
+            "md_hash": None,
+            "object_type": "OBJECT",
+            "level": 1,
+            "parent_id": None,
+            "has_ole": 0,
+            # has_rich_format intentionally omitted
+        }])
+        row = seeded_conn.execute(
+            "SELECT has_rich_format FROM staging_doors WHERE object_id = 2 AND attribute = 'Object Text'"
+        ).fetchone()
+        assert row["has_rich_format"] == 0
+
 
 class TestStagingBaselineRepository:
     def _rows(self) -> list[dict[str, Any]]:

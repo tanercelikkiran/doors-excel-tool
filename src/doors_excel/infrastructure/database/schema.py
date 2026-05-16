@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import sqlite3
 
-SCHEMA_VERSION: int = 1
+SCHEMA_VERSION: int = 2
 
 SCHEMA_DDL: str = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS staging_doors (
     object_type TEXT,
     level       INTEGER,
     parent_id   INTEGER,
-    has_ole     INTEGER NOT NULL DEFAULT 0,
+    has_ole         INTEGER NOT NULL DEFAULT 0,
+    has_rich_format INTEGER NOT NULL DEFAULT 0,
     UNIQUE(session_id, object_id, attribute)
 );
 
@@ -104,12 +105,40 @@ CREATE INDEX IF NOT EXISTS idx_ve_session_sev  ON validation_errors(session_id, 
 """
 
 
+def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
+    try:
+        conn.execute(
+            "ALTER TABLE staging_doors ADD COLUMN has_rich_format INTEGER NOT NULL DEFAULT 0"
+        )
+        conn.commit()
+    except sqlite3.OperationalError as exc:
+        if "duplicate column name" not in str(exc).lower():
+            raise
+
+
 def apply_schema(conn: sqlite3.Connection) -> None:
     """Execute all DDL statements and seed the schema_version row.
 
     Safe to call multiple times — all statements use IF NOT EXISTS.
+    Applies incremental migrations when called on an older database.
     """
+    existing = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'"
+    ).fetchone()
+
+    if existing is not None:
+        row = conn.execute("SELECT version FROM schema_version").fetchone()
+        old_version = row[0] if row else 0
+    else:
+        old_version = 0
+
     conn.executescript(SCHEMA_DDL)
+
+    if old_version < 2:
+        _migrate_v1_to_v2(conn)
+        conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
+        conn.commit()
+
     conn.execute(
         "INSERT OR IGNORE INTO schema_version (version) VALUES (?)",
         (SCHEMA_VERSION,),

@@ -50,10 +50,10 @@ class StagingDoorsRepository:
         self.conn.executemany(
             """INSERT OR REPLACE INTO staging_doors
                (session_id, object_id, attribute, value, rtf_value, md_hash,
-                object_type, level, parent_id, has_ole)
+                object_type, level, parent_id, has_ole, has_rich_format)
                VALUES (:session_id, :object_id, :attribute, :value, :rtf_value, :md_hash,
-                       :object_type, :level, :parent_id, :has_ole)""",
-            rows,
+                       :object_type, :level, :parent_id, :has_ole, :has_rich_format)""",
+            [{"has_rich_format": 0, **r} for r in rows],
         )
         self.conn.commit()
 

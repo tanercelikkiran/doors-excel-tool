@@ -47,6 +47,18 @@ class TestDiffSummaryProperties:
         with pytest.raises(Exception):
             s.new_count = 1  # type: ignore[misc]
 
+    def test_format_loss_risk_count_defaults_to_zero(self) -> None:
+        s = DiffSummary(0, 0, 0, 0, 0, 0)
+        assert s.format_loss_risk_count == 0
+
+    def test_has_format_loss_risk_false_when_zero(self) -> None:
+        s = DiffSummary(0, 0, 0, 0, 0, 0)
+        assert s.has_format_loss_risk is False
+
+    def test_has_format_loss_risk_true_when_nonzero(self) -> None:
+        s = DiffSummary(0, 0, 1, 0, 0, 0, format_loss_risk_count=2)
+        assert s.has_format_loss_risk is True
+
 
 class TestGetDiffSummary:
     def test_empty_db_returns_zeros(self, conn) -> None:
@@ -107,3 +119,70 @@ class TestGetDiffSummary:
         conn.commit()
         s = get_diff_summary(conn, SID)
         assert s.updated_count == 0
+
+    def test_format_loss_risk_count_zero_when_no_rich_updates(self, conn) -> None:
+        """UPDATED rows with has_rich_format=0 do not count as format-loss-risk."""
+        conn.execute(
+            "INSERT INTO sessions (session_id, excel_path, doors_module, excel_sha256, module_version)"
+            " VALUES (?, 'f.xlsx', '/m', 'a', 'c')", (SID,)
+        )
+        conn.execute(
+            "INSERT INTO staging_doors (session_id, object_id, attribute, value, has_ole, has_rich_format)"
+            " VALUES (?, 10, 'T', 'orig', 0, 0)", (SID,)
+        )
+        conn.execute(
+            "INSERT INTO staging_excel (session_id, row_number, object_id, attribute, value, md_hash)"
+            " VALUES (?, 1, 10, 'T', 'new', 'hash_new')", (SID,)
+        )
+        conn.execute(
+            "INSERT INTO diff_results (session_id, object_id, attribute, change_type, excel_value)"
+            " VALUES (?, 10, 'T', 'UPDATED', 'new')", (SID,)
+        )
+        conn.commit()
+        s = get_diff_summary(conn, SID)
+        assert s.format_loss_risk_count == 0
+
+    def test_format_loss_risk_count_counts_rich_updated_with_changed_md_hash(self, conn) -> None:
+        """UPDATED rows with has_rich_format=1 and changed md_hash count as format-loss-risk."""
+        conn.execute(
+            "INSERT INTO sessions (session_id, excel_path, doors_module, excel_sha256, module_version)"
+            " VALUES (?, 'f.xlsx', '/m', 'a', 'c')", (SID,)
+        )
+        conn.execute(
+            "INSERT INTO staging_doors (session_id, object_id, attribute, value, has_ole, has_rich_format, md_hash)"
+            " VALUES (?, 10, 'T', 'orig', 0, 1, 'doors_hash')", (SID,)
+        )
+        conn.execute(
+            "INSERT INTO staging_excel (session_id, row_number, object_id, attribute, value, md_hash)"
+            " VALUES (?, 1, 10, 'T', 'new', 'excel_hash')", (SID,)
+        )
+        conn.execute(
+            "INSERT INTO diff_results (session_id, object_id, attribute, change_type, excel_value)"
+            " VALUES (?, 10, 'T', 'UPDATED', 'new')", (SID,)
+        )
+        conn.commit()
+        s = get_diff_summary(conn, SID)
+        assert s.format_loss_risk_count == 1
+        assert s.has_format_loss_risk is True
+
+    def test_format_loss_risk_count_skips_unchanged_md_hash(self, conn) -> None:
+        """has_rich_format=1 but md_hash unchanged → not a risk (RTF bypass will run)."""
+        conn.execute(
+            "INSERT INTO sessions (session_id, excel_path, doors_module, excel_sha256, module_version)"
+            " VALUES (?, 'f.xlsx', '/m', 'a', 'c')", (SID,)
+        )
+        conn.execute(
+            "INSERT INTO staging_doors (session_id, object_id, attribute, value, has_ole, has_rich_format, md_hash)"
+            " VALUES (?, 10, 'T', 'orig', 0, 1, 'same_hash')", (SID,)
+        )
+        conn.execute(
+            "INSERT INTO staging_excel (session_id, row_number, object_id, attribute, value, md_hash)"
+            " VALUES (?, 1, 10, 'T', 'orig', 'same_hash')", (SID,)
+        )
+        conn.execute(
+            "INSERT INTO diff_results (session_id, object_id, attribute, change_type, excel_value)"
+            " VALUES (?, 10, 'T', 'UPDATED', 'orig')", (SID,)
+        )
+        conn.commit()
+        s = get_diff_summary(conn, SID)
+        assert s.format_loss_risk_count == 0
