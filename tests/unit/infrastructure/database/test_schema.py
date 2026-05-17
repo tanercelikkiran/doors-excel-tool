@@ -199,6 +199,8 @@ class TestApplySchema:
         }
         assert "has_rich_format" in cols
         assert "parent_absno" in cols
+        assert "row_position" in cols
+        assert "col_position" in cols
         vrow = conn.execute("SELECT version FROM schema_version").fetchone()
         assert vrow[0] == 3
 
