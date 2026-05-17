@@ -1,12 +1,20 @@
 // export_module.dxl.j2 — rendered by Jinja2; do not edit manually.
 // Exports all objects from module {{ module_path | dxl_value }}.
 //
-// Output format per object:
-//   abs_no FS level FS parent_abs_no FS has_ole FS [plain FS rtf FS]... RS \n
-// where FS = \x1f (ASCII 31) and RS = \x1e (ASCII 30).
+// Output format per object (FS = \x1f, RS = \x1e):
+//   abs_no FS level FS parent_abs_no FS has_ole FS
+//   obj_type FS parent_absno FS row_pos FS col_pos FS
+//   [plain FS rtf FS]... RS \n
+//
+// TABLE_ROW and TABLE_CELL have abs_no=0; they get synthetic IDs on the Python side.
+// TABLE_END rows are injected by Python after parsing; DXL does not emit them.
 
 string FS = "\x1f"
 string RS  = "\x1e"
+
+int curTableAbsNo = 0
+int curRowPos     = 0
+int curColPos     = 0
 
 Module m = read("{{ module_path | dxl_value }}", false)
 if null m then {
@@ -17,7 +25,32 @@ if null m then {
 Object o
 for o in entire m do {
     int an = absNo(o)
-    if an == 0 then continue
+
+    string objType  = "OBJECT"
+    int parentAbsNo = 0
+    int rowPos      = 0
+    int colPos      = 0
+
+    if isTable(o) then {
+        objType = "TABLE"
+        curTableAbsNo = an
+        curRowPos = 0
+        curColPos = 0
+    } else if isTableRow(o) then {
+        objType = "TABLE_ROW"
+        curRowPos = curRowPos + 1
+        curColPos = 0
+        parentAbsNo = curTableAbsNo
+        rowPos = curRowPos
+    } else if isTableCell(o) then {
+        objType = "TABLE_CELL"
+        curColPos = curColPos + 1
+        parentAbsNo = curTableAbsNo
+        rowPos = curRowPos
+        colPos = curColPos
+    } else if an == 0 then {
+        continue
+    }
 
     string sParent = ""
     Object par = parent(o)
@@ -34,6 +67,10 @@ for o in entire m do {
     print level(o) "" FS
     print sParent FS
     print hasOleFlag "" FS
+    print objType FS
+    print parentAbsNo "" FS
+    print rowPos "" FS
+    print colPos "" FS
 
 {% for attr in attributes %}
     {

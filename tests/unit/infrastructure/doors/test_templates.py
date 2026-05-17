@@ -130,3 +130,33 @@ class TestExportModuleTemplate:
             attributes=[],
         )
         assert "Module m" in rendered
+
+    def test_template_contains_table_type_detection(self) -> None:
+        rendered = render_template(
+            "export_module.dxl.j2",
+            module_path="/proj/mod",
+            attributes=["Object Text"],
+        )
+        assert "isTable(o)" in rendered
+        assert "isTableRow(o)" in rendered
+        assert "isTableCell(o)" in rendered
+
+    def test_template_emits_obj_type_field(self) -> None:
+        rendered = render_template(
+            "export_module.dxl.j2",
+            module_path="/proj/mod",
+            attributes=["Object Text"],
+        )
+        assert "objType" in rendered
+        assert "parentAbsNo" in rendered
+        assert "rowPos" in rendered
+        assert "colPos" in rendered
+
+    def test_template_skips_non_table_absno_zero(self) -> None:
+        rendered = render_template(
+            "export_module.dxl.j2",
+            module_path="/proj/mod",
+            attributes=["Object Text"],
+        )
+        assert "an == 0" in rendered
+        assert "continue" in rendered
