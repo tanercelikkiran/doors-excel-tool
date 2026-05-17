@@ -330,5 +330,6 @@ def _populate_session(
                 "original_rtf": row["rtf_value"],
             }
             for row in raw_rows
+            if row.get("object_type") != "TABLE_END"
         ]
     )
