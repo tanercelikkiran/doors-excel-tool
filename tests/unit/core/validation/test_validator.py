@@ -316,3 +316,50 @@ class TestStructuralMarkers:
         })
         validate_session(conn, SID, basic_config)
         assert fetch_errors(conn, "STRUCT_MARKER_OUT_OF_ORDER") == []
+
+    def _make_table_config(self):
+        from doors_excel.core.validation.models import ColumnMapping, ModuleConfig
+        return ModuleConfig(
+            module_path="/p",
+            column_mappings=[ColumnMapping(column="Object Type", attribute="Object Type")],
+        )
+
+    def test_table_cell_before_table_row_is_hierarchy_error(self, conn) -> None:
+        config = self._make_table_config()
+        self._insert_markers(conn, [
+            (1, "TABLE_START"),
+            (2, "TABLE_CELL"),   # no TABLE_ROW first — hierarchy violation
+            (3, "TABLE_END"),
+        ])
+        validate_session(conn, SID, config)
+        errors = fetch_errors(conn, "STRUCT_HIERARCHY_MISMATCH")
+        assert len(errors) == 1
+        assert "TABLE_CELL" in errors[0]["message"]
+        assert "TABLE_ROW" in errors[0]["message"]
+
+    def test_table_cell_after_table_row_no_hierarchy_error(self, conn) -> None:
+        config = self._make_table_config()
+        self._insert_markers(conn, [
+            (1, "TABLE_START"),
+            (2, "TABLE_ROW"),
+            (3, "TABLE_CELL"),
+            (4, "TABLE_CELL"),
+            (5, "TABLE_END"),
+        ])
+        validate_session(conn, SID, config)
+        assert fetch_errors(conn, "STRUCT_HIERARCHY_MISMATCH") == []
+
+    def test_table_end_resets_row_state_for_next_table(self, conn) -> None:
+        config = self._make_table_config()
+        self._insert_markers(conn, [
+            (1, "TABLE_START"),
+            (2, "TABLE_ROW"),
+            (3, "TABLE_CELL"),
+            (4, "TABLE_END"),
+            (5, "TABLE_START"),
+            (6, "TABLE_CELL"),   # no TABLE_ROW in second table
+            (7, "TABLE_END"),
+        ])
+        validate_session(conn, SID, config)
+        errors = fetch_errors(conn, "STRUCT_HIERARCHY_MISMATCH")
+        assert len(errors) == 1   # only row 6 flagged, not row 3

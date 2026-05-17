@@ -10,6 +10,7 @@ STR_LEN_EXCEEDED       — String attribute exceeds 1024 chars (REQ-FUN-206.1)
 ENUM_MISMATCH          — value not in the declared allowed set (REQ-FUN-206)
 ORPHAN_PLACEHOLDER     — [IMAGE: N] in a new row (REQ-FUN-217.3)
 STRUCT_MARKER_OUT_OF_ORDER — TABLE_ROW/CELL outside TABLE_START/END (REQ-FUN-108.2)
+STRUCT_HIERARCHY_MISMATCH  — TABLE_CELL before any TABLE_ROW in its table (REQ-FUN-108.5)
 """
 from __future__ import annotations
 
@@ -224,7 +225,7 @@ def _check_structural_markers(
     session_id: str,
     module_config: ModuleConfig,
 ) -> None:
-    """STRUCT_MARKER_OUT_OF_ORDER: TABLE_ROW/CELL outside TABLE_START/END."""
+    """STRUCT_MARKER_OUT_OF_ORDER / STRUCT_HIERARCHY_MISMATCH: table structure checks."""
     rows = conn.execute(
         """
         SELECT row_number, object_id, value
@@ -237,12 +238,14 @@ def _check_structural_markers(
     ).fetchall()
 
     in_table = False
+    in_table_with_row = False
     for row_number, object_id, value in rows:
         if value is None:
             continue
         marker = value.strip()
         if marker == "TABLE_START":
             in_table = True
+            in_table_with_row = False
         elif marker == "TABLE_END":
             if not in_table:
                 _insert_error(
@@ -255,7 +258,8 @@ def _check_structural_markers(
                     message="TABLE_END found without a preceding TABLE_START.",
                 )
             in_table = False
-        elif marker in ("TABLE_ROW", "TABLE_CELL"):
+            in_table_with_row = False
+        elif marker == "TABLE_ROW":
             if not in_table:
                 _insert_error(
                     conn,
@@ -264,7 +268,30 @@ def _check_structural_markers(
                     object_id=object_id,
                     attribute=module_config.object_type_column,
                     error_code="STRUCT_MARKER_OUT_OF_ORDER",
-                    message=f"{marker} found outside TABLE_START/TABLE_END.",
+                    message="TABLE_ROW found outside TABLE_START/TABLE_END.",
+                )
+            else:
+                in_table_with_row = True
+        elif marker == "TABLE_CELL":
+            if not in_table:
+                _insert_error(
+                    conn,
+                    session_id,
+                    row_number=row_number,
+                    object_id=object_id,
+                    attribute=module_config.object_type_column,
+                    error_code="STRUCT_MARKER_OUT_OF_ORDER",
+                    message="TABLE_CELL found outside TABLE_START/TABLE_END.",
+                )
+            elif not in_table_with_row:
+                _insert_error(
+                    conn,
+                    session_id,
+                    row_number=row_number,
+                    object_id=object_id,
+                    attribute=module_config.object_type_column,
+                    error_code="STRUCT_HIERARCHY_MISMATCH",
+                    message="TABLE_CELL found before any TABLE_ROW in this table.",
                 )
     conn.commit()
 
