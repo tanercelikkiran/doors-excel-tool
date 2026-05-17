@@ -19,8 +19,19 @@ FS = "\x1f"
 RS = "\x1e"
 
 
-def _record(*fields: str) -> str:
-    """Build a single DXL record string (fields joined by FS, terminated with RS)."""
+def _record(
+    abs_no: str,
+    level: str,
+    parent_id: str,
+    has_ole: str,
+    *attr_pairs: str,
+    obj_type: str = "OBJECT",
+    parent_absno: str = "0",
+    row_pos: str = "0",
+    col_pos: str = "0",
+) -> str:
+    """Build a DXL record in the new 8-field-header format."""
+    fields = [abs_no, level, parent_id, has_ole, obj_type, parent_absno, row_pos, col_pos] + list(attr_pairs)
     return FS.join(fields) + RS + "\n"
 
 
@@ -110,3 +121,85 @@ class TestParseOutput:
         exporter = _make_exporter(output)
         rows = exporter.export_module("/proj/mod", [])
         assert rows == []
+
+
+class TestTableTypeParsing:
+    def test_table_row_assigned_synthetic_negative_id(self) -> None:
+        output = _record("0", "2", "42", "0", "Row text", "",
+                         obj_type="TABLE_ROW", parent_absno="42", row_pos="1")
+        exporter = _make_exporter(output)
+        rows = exporter.export_module("/proj/mod", ["Object Text"])
+        tr_rows = [r for r in rows if r["object_type"] == "TABLE_ROW"]
+        assert len(tr_rows) == 1
+        assert tr_rows[0]["object_id"] < 0
+        assert tr_rows[0]["parent_absno"] == 42
+        assert tr_rows[0]["row_position"] == 1
+        assert tr_rows[0]["col_position"] is None
+
+    def test_table_cell_parsed_with_all_position_fields(self) -> None:
+        output = _record("0", "3", "42", "0", "Cell", "",
+                         obj_type="TABLE_CELL", parent_absno="42", row_pos="1", col_pos="2")
+        exporter = _make_exporter(output)
+        rows = exporter.export_module("/proj/mod", ["Object Text"])
+        tc_rows = [r for r in rows if r["object_type"] == "TABLE_CELL"]
+        assert len(tc_rows) == 1
+        assert tc_rows[0]["parent_absno"] == 42
+        assert tc_rows[0]["row_position"] == 1
+        assert tc_rows[0]["col_position"] == 2
+
+    def test_table_end_injected_after_table_block(self) -> None:
+        output = (
+            _record("42", "1", "", "0", "", "", obj_type="TABLE")
+            + _record("0", "2", "42", "0", "row", "", obj_type="TABLE_ROW", parent_absno="42", row_pos="1")
+            + _record("1", "1", "", "0", "Normal obj", "")  # non-table follows
+        )
+        exporter = _make_exporter(output)
+        rows = exporter.export_module("/proj/mod", ["Object Text"])
+        types = [r["object_type"] for r in rows]
+        assert "TABLE_END" in types
+        te_idx = next(i for i, r in enumerate(rows) if r["object_type"] == "TABLE_END")
+        obj_idx = next(i for i, r in enumerate(rows) if r["object_type"] == "OBJECT")
+        assert te_idx < obj_idx
+
+    def test_table_end_injected_at_end_of_module(self) -> None:
+        output = (
+            _record("42", "1", "", "0", "", "", obj_type="TABLE")
+            + _record("0", "2", "42", "0", "row", "", obj_type="TABLE_ROW", parent_absno="42", row_pos="1")
+        )
+        exporter = _make_exporter(output)
+        rows = exporter.export_module("/proj/mod", ["Object Text"])
+        types = [r["object_type"] for r in rows]
+        assert types[-1] == "TABLE_END"
+
+    def test_table_end_has_parent_absno_of_table(self) -> None:
+        output = (
+            _record("99", "1", "", "0", "", "", obj_type="TABLE")
+            + _record("0", "2", "99", "0", "row", "", obj_type="TABLE_ROW", parent_absno="99", row_pos="1")
+        )
+        exporter = _make_exporter(output)
+        rows = exporter.export_module("/proj/mod", ["Object Text"])
+        te = next(r for r in rows if r["object_type"] == "TABLE_END")
+        assert te["parent_absno"] == 99
+
+    def test_object_type_emitted_for_regular_object(self) -> None:
+        output = _record("1", "1", "", "0", "Text", "")
+        exporter = _make_exporter(output)
+        rows = exporter.export_module("/proj/mod", ["Object Text"])
+        assert rows[0]["object_type"] == "OBJECT"
+        assert rows[0]["parent_absno"] is None
+        assert rows[0]["row_position"] is None
+        assert rows[0]["col_position"] is None
+
+    def test_two_tables_each_get_own_table_end(self) -> None:
+        output = (
+            _record("10", "1", "", "0", "", "", obj_type="TABLE")
+            + _record("0", "2", "10", "0", "r1", "", obj_type="TABLE_ROW", parent_absno="10", row_pos="1")
+            + _record("20", "1", "", "0", "", "", obj_type="TABLE")
+            + _record("0", "2", "20", "0", "r2", "", obj_type="TABLE_ROW", parent_absno="20", row_pos="1")
+        )
+        exporter = _make_exporter(output)
+        rows = exporter.export_module("/proj/mod", ["Object Text"])
+        table_ends = [r for r in rows if r["object_type"] == "TABLE_END"]
+        assert len(table_ends) == 2
+        parent_absno_values = {te["parent_absno"] for te in table_ends}
+        assert parent_absno_values == {10, 20}
