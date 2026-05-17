@@ -33,6 +33,9 @@ def _raw_rows(object_id: int = 1, level: int = 1, attrs: list[str] | None = None
             "value": f"Value of {a}",
             "rtf_value": "",
             "md_hash": None,
+            "parent_absno": None,
+            "row_position": None,
+            "col_position": None,
         }
         for a in attrs
         # rtf_value="" skips RTF→Markdown conversion for most tests;
@@ -193,6 +196,56 @@ class TestExportModule:
         ws = wb.active
         module_path = get_module_path(wb, ws)
         assert module_path == "/proj/mod"
+
+    def test_excel_has_object_type_column(self, tmp_path: Path) -> None:
+        from doors_excel.api.export import export_module
+
+        with patch(
+            "doors_excel.api.export.DoorsExporter.export_module",
+            return_value=_raw_rows(),
+        ):
+            out = export_module(
+                "/proj/mod", _make_module_config(), tmp_path / "out.xlsx",
+                doors_conn=object(),
+            )
+        wb = openpyxl.load_workbook(out)
+        headers = [c.value for c in next(wb.active.iter_rows(min_row=1, max_row=1))]
+        assert "Object Type" in headers
+
+    def test_regular_object_rows_have_object_marker(self, tmp_path: Path) -> None:
+        from doors_excel.api.export import export_module
+
+        with patch(
+            "doors_excel.api.export.DoorsExporter.export_module",
+            return_value=_raw_rows(object_id=5),
+        ):
+            out = export_module(
+                "/proj/mod", _make_module_config(), tmp_path / "out.xlsx",
+                doors_conn=object(),
+            )
+        wb = openpyxl.load_workbook(out)
+        ws = wb.active
+        headers = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
+        ot_col_idx = headers.index("Object Type")
+        data_row = list(ws.iter_rows(min_row=2, max_row=2, values_only=True))[0]
+        assert data_row[ot_col_idx] == "OBJECT"
+
+    def test_excel_has_doors_position_system_columns(self, tmp_path: Path) -> None:
+        from doors_excel.api.export import export_module
+
+        with patch(
+            "doors_excel.api.export.DoorsExporter.export_module",
+            return_value=_raw_rows(),
+        ):
+            out = export_module(
+                "/proj/mod", _make_module_config(), tmp_path / "out.xlsx",
+                doors_conn=object(),
+            )
+        wb = openpyxl.load_workbook(out)
+        headers = [c.value for c in next(wb.active.iter_rows(min_row=1, max_row=1))]
+        assert "_DOORS_Parent_AbsNo" in headers
+        assert "_DOORS_Row_Position" in headers
+        assert "_DOORS_Col_Position" in headers
 
 
 # ---------------------------------------------------------------------------

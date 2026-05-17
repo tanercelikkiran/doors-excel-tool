@@ -13,6 +13,20 @@ if TYPE_CHECKING:
 
     from doors_excel.api.sessions import SessionManager
 
+_DOORS_TYPE_TO_EXCEL: dict[str, str] = {
+    "OBJECT":     "OBJECT",
+    "TABLE":      "TABLE_START",
+    "TABLE_ROW":  "TABLE_ROW",
+    "TABLE_CELL": "TABLE_CELL",
+    "TABLE_END":  "TABLE_END",
+}
+
+_POSITION_COLS: list[str] = [
+    "_DOORS_Parent_AbsNo",
+    "_DOORS_Row_Position",
+    "_DOORS_Col_Position",
+]
+
 
 def _apply_worksheet_protection(
     ws: Worksheet,
@@ -118,11 +132,16 @@ def _build_objects_from_rows(
     attr_to_col = {m.attribute: m.column for m in module_config.column_mappings}
     for row in raw_rows:
         oid = row["object_id"]
+        obj_type = row.get("object_type", "OBJECT")
         if oid not in objects:
             objects[oid] = {
-                module_config.object_id_column: oid,
+                module_config.object_id_column: oid if oid > 0 else None,
+                module_config.object_type_column: _DOORS_TYPE_TO_EXCEL.get(obj_type, obj_type),
                 module_config.level_column: row["level"],
                 module_config.parent_id_column: row["parent_id"],
+                "_DOORS_Parent_AbsNo": row.get("parent_absno"),
+                "_DOORS_Row_Position": row.get("row_position"),
+                "_DOORS_Col_Position": row.get("col_position"),
             }
         col = attr_to_col.get(row["attribute"])
         if col:
@@ -145,7 +164,9 @@ def _write_module_sheet(
     """Add a sheet for one module to *wb*, write headers and data rows, apply protection."""
     ws = add_module_sheet(wb, module_name, module_path)
     headers = (
-        [module_config.object_id_column, module_config.level_column, module_config.parent_id_column]
+        [module_config.object_id_column, module_config.object_type_column,
+         module_config.level_column, module_config.parent_id_column]
+        + _POSITION_COLS
         + [m.column for m in module_config.column_mappings]
     )
     if include_source_baseline:
@@ -154,7 +175,7 @@ def _write_module_sheet(
             obj["Source Baseline"] = baseline
     headers = _expand_long_values(objects, module_config, headers)
     ws.append(headers)
-    for oid in sorted(objects):
+    for oid in objects:
         ws.append([objects[oid].get(h) for h in headers])
     if sheet_protection:
         _apply_worksheet_protection(ws, headers, module_config, password=sheet_protection_password)
@@ -261,9 +282,26 @@ def _populate_session(
     sid = info.session_id
     conn = mgr.conn
 
-    StagingDoorsRepository(conn).insert_many(
-        [{**row, "session_id": sid} for row in raw_rows]
-    )
+    doors_rows = [
+        {
+            "session_id": sid,
+            "object_id": row["object_id"],
+            "attribute": row["attribute"],
+            "value": row["value"],
+            "rtf_value": row.get("rtf_value", ""),
+            "md_hash": row.get("md_hash"),
+            "object_type": row.get("object_type", "OBJECT"),
+            "level": row.get("level", 0),
+            "parent_id": row.get("parent_id"),
+            "has_ole": row.get("has_ole", 0),
+            "parent_absno": row.get("parent_absno"),
+            "row_position": row.get("row_position"),
+            "col_position": row.get("col_position"),
+        }
+        for row in raw_rows
+        if row.get("object_type") != "TABLE_END"
+    ]
+    StagingDoorsRepository(conn).insert_many(doors_rows)
     StagingBaselineRepository(conn).insert_many(
         [
             {
@@ -271,11 +309,15 @@ def _populate_session(
                 "object_id": row["object_id"],
                 "attribute": row["attribute"],
                 "value": row["value"],
-                "object_type": row["object_type"],
-                "level": row["level"],
-                "parent_id": row["parent_id"],
+                "object_type": row.get("object_type", "OBJECT"),
+                "level": row.get("level", 0),
+                "parent_id": row.get("parent_id"),
+                "parent_absno": row.get("parent_absno"),
+                "row_position": row.get("row_position"),
+                "col_position": row.get("col_position"),
             }
             for row in raw_rows
+            if row.get("object_type") != "TABLE_END"
         ]
     )
     RollbackSnapshotRepository(conn).insert_many(
