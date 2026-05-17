@@ -155,8 +155,5 @@ def apply_schema(conn: sqlite3.Connection) -> None:
         _apply_migrations(conn)
 
     conn.execute("DELETE FROM schema_version")
-    conn.execute(
-        "INSERT INTO schema_version (version) VALUES (?)",
-        (SCHEMA_VERSION,),
-    )
+    conn.execute("INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,))
     conn.commit()
